@@ -4,8 +4,17 @@
 export type Miembro = {
   id: string
   nombre: string
-  rol: string
+  parentesco: string
   avatar_url: string | null
+
+  hogar_id: string | null
+
+  tipo: string | null
+
+  fecha_nacimiento: string | null
+
+  notas: string | null
+
   created_at: string
 }
 
@@ -43,3 +52,40 @@ export type Evento = {
 }
 
 export type EventoInsert = Omit<Evento, 'id' | 'created_at'>
+export type DocumentoCategoria =
+  | "Salud"
+  | "Educacion"
+  | "Finanzas"
+  | "Vivienda"
+  | "Vehiculos"
+  | "Mascotas"
+  | "Personal"
+  | "Otros"
+
+export type DocumentoVisibilidad =
+  | "shared"
+  | "private"
+
+export type Documento = {
+  id: string
+
+  hogar_id: string
+
+  miembro_id: string | null
+
+  nombre: string
+
+  categoria: DocumentoCategoria
+
+  archivo_url: string
+
+  visibilidad: DocumentoVisibilidad
+
+  fecha_vencimiento: string | null
+
+  notas: string | null
+
+  created_by: string
+
+  created_at: string
+}
