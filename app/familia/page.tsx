@@ -74,7 +74,7 @@ export default function FamiliaPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-sm">{m.nombre}</p>
-                    <p className="text-xs text-slate-400">{m.rol}</p>
+                    <p className="text-xs text-slate-400">{m.parentesco}</p>
                   </div>
                 </div>
                 <button
