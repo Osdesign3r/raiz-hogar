@@ -6,12 +6,18 @@ import type { Gasto, GastoInsert, Categoria, Division } from "@/lib/types"
 import { Trash2, Plus, TrendingUp } from "lucide-react"
 
 const DIVISION_LABELS: Record<Division, string> = {
-  "50-50":  "Mitad y mitad",
-  oscar:    "Oscar paga",
-  pareja:   "Pareja paga",
+  "50-50": "Mitad y mitad",
+  oscar:   "Oscar paga",
+  pareja:  "Pareja paga",
 }
 
 const hoy = () => new Date().toISOString().split("T")[0]
+
+// Último día real del mes — nunca más junio-31
+const ultimoDiaMes = (mesActivo: string) => {
+  const [año, mes] = mesActivo.split("-").map(Number)
+  return new Date(año, mes, 0).toISOString().split("T")[0]
+}
 
 export default function FinanzasPage() {
   const [gastos,     setGastos]     = useState<Gasto[]>([])
@@ -20,25 +26,27 @@ export default function FinanzasPage() {
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState<string | null>(null)
 
-  // Formulario
-  const [concepto,     setConcepto]     = useState("")
-  const [valor,        setValor]        = useState("")
-  const [division,     setDivision]     = useState<Division>("50-50")
-  const [categoriaId,  setCategoriaId]  = useState("")
-  const [fecha,        setFecha]        = useState(hoy())
-  const [mesActivo,    setMesActivo]    = useState(() => hoy().slice(0, 7)) // YYYY-MM
+  const [concepto,    setConcepto]    = useState("")
+  const [valor,       setValor]       = useState("")
+  const [division,    setDivision]    = useState<Division>("50-50")
+  const [categoriaId, setCategoriaId] = useState("")
+  const [fecha,       setFecha]       = useState(hoy())
+  const [mesActivo,   setMesActivo]   = useState(() => hoy().slice(0, 7))
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
     setError(null)
+
+    const fechaInicio = `${mesActivo}-01`
+    const fechaFin    = ultimoDiaMes(mesActivo)
 
     const [{ data: cats }, { data: gastsData, error: gastosErr }] = await Promise.all([
       supabase.from("categorias").select("*").order("nombre"),
       supabase
         .from("gastos")
         .select("*, categorias(id, nombre, emoji)")
-        .gte("fecha", `${mesActivo}-01`)
-        .lte("fecha", `${mesActivo}-31`)
+        .gte("fecha", fechaInicio)
+        .lte("fecha", fechaFin)
         .order("fecha", { ascending: false }),
     ])
 
@@ -87,7 +95,6 @@ export default function FinanzasPage() {
     if (!err) setGastos(prev => prev.filter(g => g.id !== id))
   }
 
-  // Totales del mes
   const totalOscar = gastos.reduce((acc, g) => {
     if (g.division === "50-50") return acc + g.valor / 2
     if (g.division === "oscar") return acc + g.valor
@@ -100,9 +107,13 @@ export default function FinanzasPage() {
     return acc
   }, 0)
 
-  const totalMes = gastos.reduce((acc, g) => acc + g.valor, 0)
+  const totalMes   = gastos.reduce((acc, g) => acc + g.valor, 0)
   const diferencia = totalOscar - totalPareja
-  const quienDebe = diferencia > 0 ? "Pareja le debe a Oscar" : diferencia < 0 ? "Oscar le debe a Pareja" : null
+  const quienDebe  = diferencia > 0
+    ? "Pareja le debe a Oscar"
+    : diferencia < 0
+    ? "Oscar le debe a Pareja"
+    : null
 
   const fmt = (n: number) => `$${Math.abs(n).toLocaleString("es-CO")}`
 
@@ -124,7 +135,7 @@ export default function FinanzasPage() {
           </div>
         </div>
 
-        {/* Resumen del mes */}
+        {/* Resumen */}
         <div className="grid grid-cols-3 gap-2 mb-6">
           <div className="bg-slate-900 rounded-xl p-3">
             <p className="text-xs text-slate-400 mb-1">Total mes</p>
@@ -225,7 +236,7 @@ export default function FinanzasPage() {
         {/* Lista */}
         {loading ? (
           <div className="space-y-3">
-            {[1,2,3].map(i => (
+            {[1, 2, 3].map(i => (
               <div key={i} className="bg-slate-900 rounded-xl h-16 animate-pulse" />
             ))}
           </div>
@@ -239,9 +250,7 @@ export default function FinanzasPage() {
             {gastos.map(g => (
               <div key={g.id} className="bg-slate-900 rounded-xl p-4 flex items-center justify-between group">
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-xl shrink-0">
-                    {g.categorias?.emoji ?? "📦"}
-                  </span>
+                  <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
                   <div className="min-w-0">
                     <p className="font-medium text-sm truncate">{g.concepto}</p>
                     <p className="text-xs text-slate-400">
