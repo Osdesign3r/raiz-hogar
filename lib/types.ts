@@ -62,6 +62,8 @@ export type GastoInsert = Omit<
   user_id?: string    // lo completa el trigger si se omite
 }
 
+export type EventoTipo = 'evento' | 'tarea'
+
 export type Evento = {
   id: string
   hogar_id: string
@@ -71,10 +73,18 @@ export type Evento = {
   hora: string | null
   descripcion: string | null
   color: string
+  tipo: EventoTipo
+  asignado_a: string | null   // perfil.id; null = compete a ambos, es informativo
+  completado: boolean
+  completado_at: string | null
+  recordatorio_minutos_antes: number | null
   created_at: string
 }
 
-export type EventoInsert = Omit<Evento, 'id' | 'created_at' | 'hogar_id' | 'user_id'> & {
+export type EventoInsert = Omit<
+  Evento,
+  'id' | 'created_at' | 'hogar_id' | 'user_id' | 'completado' | 'completado_at'
+> & {
   hogar_id?: string
   user_id?: string
 }

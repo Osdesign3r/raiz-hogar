@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
-import type { Evento, EventoInsert } from "@/lib/types"
-import { CalendarPlus, Trash2, Calendar } from "lucide-react"
+import type { Evento, EventoInsert, EventoTipo, Perfil } from "@/lib/types"
+import { CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle } from "lucide-react"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -30,27 +30,44 @@ const formatFecha = (f: string) =>
 
 export default function CalendarioPage() {
   const [eventos,   setEventos]   = useState<Evento[]>([])
+  const [perfiles,  setPerfiles]  = useState<Perfil[]>([])
+  const [userId,    setUserId]    = useState<string | null>(null)
   const [loading,   setLoading]   = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [error,     setError]     = useState<string | null>(null)
 
-  const [titulo, setTitulo] = useState("")
-  const [fecha,  setFecha]  = useState(hoy())
-  const [hora,   setHora]   = useState("")
-  const [color,  setColor]  = useState("blue")
+  const [titulo,      setTitulo]      = useState("")
+  const [fecha,        setFecha]       = useState(hoy())
+  const [hora,         setHora]        = useState("")
+  const [color,        setColor]       = useState("blue")
+  const [tipo,         setTipo]        = useState<EventoTipo>("evento")
+  const [asignadoA,    setAsignadoA]   = useState<string | null>(null) // null = ambos
+  const [descripcion,  setDescripcion] = useState("")
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const { data, error: err } = await supabase
-      .from("eventos")
-      .select("*")
-      .gte("fecha", hoy())
-      .order("fecha", { ascending: true })
+    const [{ data: { user } }, { data: perfilesData }, { data, error: err }] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
+      supabase
+        .from("eventos")
+        .select("*")
+        .order("fecha", { ascending: true }),
+    ])
+    setUserId(user?.id ?? null)
+    setPerfiles(perfilesData ?? [])
     if (!err) setEventos(data ?? [])
     setLoading(false)
   }, [])
 
   useEffect(() => { cargar() }, [cargar])
+
+  const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
+  const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
+  const nombreAsignado = useCallback(
+    (id: string | null) => id === null ? "Ambos" : esYo(id) ? "Ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    [perfiles, esYo]
+  )
 
   const guardar = async () => {
     if (!titulo.trim() || !fecha) return
@@ -58,21 +75,27 @@ export default function CalendarioPage() {
     setError(null)
 
     const nuevo: EventoInsert = {
-      titulo:      titulo.trim(),
+      titulo:       titulo.trim(),
       fecha,
-      hora:        hora || null,
-      descripcion: null,
+      hora:         hora || null,
+      descripcion:  descripcion.trim() || null,
       color,
+      tipo,
+      asignado_a:   asignadoA,
+      recordatorio_minutos_antes: null,
     }
 
     const { error: err } = await supabase.from("eventos").insert(nuevo)
     if (err) {
-      setError("No se pudo guardar el evento.")
+      setError("No se pudo guardar.")
     } else {
       setTitulo("")
       setFecha(hoy())
       setHora("")
       setColor("blue")
+      setTipo("evento")
+      setAsignadoA(null)
+      setDescripcion("")
       await cargar()
     }
     setGuardando(false)
@@ -83,12 +106,74 @@ export default function CalendarioPage() {
     if (!err) setEventos(prev => prev.filter(e => e.id !== id))
   }
 
-  // Agrupar por fecha
-  const eventosPorFecha = eventos.reduce<Record<string, Evento[]>>((acc, e) => {
+  const marcarCompletado = async (e: Evento) => {
+    const completado = !e.completado
+    const { error: err } = await supabase
+      .from("eventos")
+      .update({ completado, completado_at: completado ? new Date().toISOString() : null })
+      .eq("id", e.id)
+    if (!err) {
+      setEventos(prev => prev.map(ev => ev.id === e.id ? { ...ev, completado, completado_at: completado ? new Date().toISOString() : null } : ev))
+    }
+  }
+
+  const atrasados = useMemo(
+    () => eventos.filter(e => e.tipo === "tarea" && !e.completado && e.fecha < hoy()),
+    [eventos]
+  )
+  const proximos = useMemo(
+    () => eventos.filter(e => e.fecha >= hoy() && !(e.tipo === "tarea" && e.completado)),
+    [eventos]
+  )
+
+  // Agrupar próximos por fecha
+  const proximosPorFecha = proximos.reduce<Record<string, Evento[]>>((acc, e) => {
     if (!acc[e.fecha]) acc[e.fecha] = []
     acc[e.fecha].push(e)
     return acc
   }, {})
+
+  const renderItem = (e: Evento, destacarAtrasado = false) => (
+    <div
+      key={e.id}
+      className={`rounded-xl p-4 flex items-center justify-between group ${
+        destacarAtrasado ? "bg-red-500/10 border border-red-500/30" : "bg-slate-900"
+      }`}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {e.tipo === "tarea" ? (
+          <button onClick={() => marcarCompletado(e)} className="shrink-0">
+            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition ${
+              e.completado ? "bg-green-500 border-green-500" : "border-slate-600 hover:border-slate-400"
+            }`}>
+              {e.completado && <Check size={12} className="text-white" />}
+            </div>
+          </button>
+        ) : (
+          <div className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[e.color] ?? "bg-slate-500"}`} />
+        )}
+        <div className="min-w-0">
+          <p className={`font-medium text-sm truncate ${e.completado ? "line-through text-slate-500" : ""}`}>
+            {e.titulo}
+          </p>
+          <p className="text-xs text-slate-400 flex items-center gap-1">
+            {e.hora && <span>{e.hora} · </span>}
+            <span className={
+              e.asignado_a === null ? "text-blue-400" : esYo(e.asignado_a) ? "text-emerald-400" : "text-purple-400"
+            }>
+              {nombreAsignado(e.asignado_a)}
+            </span>
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={() => eliminar(e.id)}
+        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shrink-0"
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
+  )
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
@@ -98,13 +183,39 @@ export default function CalendarioPage() {
 
         {/* Formulario */}
         <div className="bg-slate-900 rounded-xl p-4 space-y-3 mb-6">
-          <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Nuevo evento</p>
+          <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Nuevo</p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setTipo("evento")}
+              className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                tipo === "evento" ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              <Calendar size={13} /> Evento
+            </button>
+            <button
+              onClick={() => setTipo("tarea")}
+              className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                tipo === "tarea" ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              <ListChecks size={13} /> Tarea
+            </button>
+          </div>
 
           <input
             value={titulo}
             onChange={e => setTitulo(e.target.value)}
             onKeyDown={e => e.key === "Enter" && guardar()}
-            placeholder="¿Qué tienen planeado?"
+            placeholder={tipo === "tarea" ? "¿Qué hay que hacer?" : "¿Qué tienen planeado?"}
+            className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-green-500"
+          />
+
+          <input
+            value={descripcion}
+            onChange={e => setDescripcion(e.target.value)}
+            placeholder="Detalles (opcional) — ej. qué materiales llevar"
             className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-green-500"
           />
 
@@ -119,23 +230,53 @@ export default function CalendarioPage() {
               value={hora}
               onChange={e => setHora(e.target.value)}
               type="time"
-              placeholder="Hora (opcional)"
               className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-green-500"
             />
           </div>
 
-          {/* Color picker */}
-          <div className="flex gap-2">
-            {COLOR_OPTIONS.map(c => (
-              <button
-                key={c.value}
-                onClick={() => setColor(c.value)}
-                className={`w-7 h-7 rounded-full ${c.cls} transition-all ${
-                  color === c.value ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "opacity-50"
-                }`}
-              />
-            ))}
+          {/* Asignación ternaria — elección deliberada, sin default ambiguo */}
+          <p className="text-xs text-slate-500 pt-1">¿A quién le compete?</p>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => setAsignadoA(userId)}
+              className={`p-2 rounded-lg text-[11px] font-medium transition ${
+                asignadoA === userId ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              A mí
+            </button>
+            <button
+              onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
+              className={`p-2 rounded-lg text-[11px] font-medium truncate transition ${
+                asignadoA === otroPerfil?.id && otroPerfil ? "bg-purple-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              {otroPerfil ? otroPerfil.nombre : "Pareja"}
+            </button>
+            <button
+              onClick={() => setAsignadoA(null)}
+              className={`p-2 rounded-lg text-[11px] font-medium transition ${
+                asignadoA === null ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              Ambos
+            </button>
           </div>
+
+          {/* Color — solo aplica visualmente a eventos */}
+          {tipo === "evento" && (
+            <div className="flex gap-2 pt-1">
+              {COLOR_OPTIONS.map(c => (
+                <button
+                  key={c.value}
+                  onClick={() => setColor(c.value)}
+                  className={`w-7 h-7 rounded-full ${c.cls} transition-all ${
+                    color === c.value ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "opacity-50"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
 
           {error && <p className="text-red-400 text-xs">{error}</p>}
 
@@ -145,53 +286,51 @@ export default function CalendarioPage() {
             className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
           >
             <CalendarPlus size={16} />
-            {guardando ? "Guardando..." : "Agregar evento"}
+            {guardando ? "Guardando..." : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
           </button>
         </div>
 
-        {/* Lista agrupada por fecha */}
         {loading ? (
           <div className="space-y-3">
             {[1,2,3].map(i => (
               <div key={i} className="bg-slate-900 rounded-xl h-16 animate-pulse" />
             ))}
           </div>
-        ) : Object.keys(eventosPorFecha).length === 0 ? (
-          <div className="text-center py-12 text-slate-500">
-            <Calendar size={32} className="mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No hay eventos próximos</p>
-          </div>
         ) : (
-          <div className="space-y-4">
-            {Object.entries(eventosPorFecha).map(([f, evts]) => (
-              <div key={f}>
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-2 pl-1">
-                  {formatFecha(f)}
+          <>
+            {/* Atrasados — lo que se quedó pendiente */}
+            {atrasados.length > 0 && (
+              <div className="mb-5">
+                <p className="text-xs text-red-400 font-medium uppercase tracking-wide mb-2 pl-1 flex items-center gap-1">
+                  <AlertTriangle size={12} /> Se quedó pendiente
                 </p>
                 <div className="space-y-2">
-                  {evts.map(e => (
-                    <div key={e.id} className="bg-slate-900 rounded-xl p-4 flex items-center justify-between group">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[e.color] ?? "bg-slate-500"}`} />
-                        <div>
-                          <p className="font-medium text-sm">{e.titulo}</p>
-                          {e.hora && (
-                            <p className="text-xs text-slate-400">{e.hora}</p>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => eliminar(e.id)}
-                        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))}
+                  {atrasados.map(e => renderItem(e, true))}
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* Próximos, agrupados por fecha */}
+            {Object.keys(proximosPorFecha).length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <Calendar size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No hay nada próximo</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(proximosPorFecha).map(([f, evts]) => (
+                  <div key={f}>
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-2 pl-1">
+                      {formatFecha(f)}
+                    </p>
+                    <div className="space-y-2">
+                      {evts.map(e => renderItem(e))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
       </div>

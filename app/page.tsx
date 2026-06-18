@@ -3,18 +3,21 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import Link from "next/link"
-import { Wallet, Calendar, FileText, Settings, TrendingUp } from "lucide-react"
+import { Wallet, Calendar, FileText, Settings, AlertTriangle, Check } from "lucide-react"
 
 type PersonaTotal = { id: string; nombre: string; total: number }
+type EventoDash = { id: string; titulo: string; fecha: string; hora: string | null; tipo: string; asignado_a: string | null }
 
 type DashData = {
   nombre: string
+  userId: string
   totalMes: number
   personas: PersonaTotal[]
   acreedorId: string | null
   deudorId: string | null
   diferencia: number
-  eventos: { titulo: string; fecha: string; hora: string | null }[]
+  atrasados: EventoDash[]
+  proximos: EventoDash[]
 }
 
 const hoy = new Date()
@@ -45,14 +48,18 @@ export default function Home() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      const [perfilRes, perfilesHogarRes, gastosRes, eventosRes] = await Promise.all([
+      const [perfilRes, perfilesHogarRes, gastosRes, atrasadosRes, proximosRes] = await Promise.all([
         supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
         supabase.from("perfiles").select("id, nombre"),
         supabase.from("gastos").select("valor, visibilidad, pagado_por, porcentaje_pagador")
           .eq("visibilidad", "compartido")
           .gte("fecha", fechaInicio).lte("fecha", ultimoDia),
-        supabase.from("eventos").select("titulo, fecha, hora").gte("fecha", fechaHoy)
-          .order("fecha", { ascending: true }).limit(3),
+        supabase.from("eventos").select("id, titulo, fecha, hora, tipo, asignado_a")
+          .eq("tipo", "tarea").eq("completado", false).lt("fecha", fechaHoy)
+          .order("fecha", { ascending: true }),
+        supabase.from("eventos").select("id, titulo, fecha, hora, tipo, asignado_a, completado")
+          .gte("fecha", fechaHoy)
+          .order("fecha", { ascending: true }).limit(4),
       ])
 
       const gastos   = gastosRes.data ?? []
@@ -90,12 +97,14 @@ export default function Home() {
 
       setData({
         nombre: perfilRes.data?.nombre ?? "tú",
+        userId: session.user.id,
         totalMes,
         personas: personas.map(p => ({ id: p.id, nombre: p.nombre, total: totalesPorPersona[p.id] ?? 0 })),
         acreedorId: acreedor ? acreedor[0] : null,
         deudorId: deudor ? deudor[0] : null,
         diferencia: acreedor ? acreedor[1] : 0,
-        eventos: eventosRes.data ?? [],
+        atrasados: atrasadosRes.data ?? [],
+        proximos: (proximosRes.data ?? []).filter(e => !(e.tipo === "tarea" && e.completado)),
       })
       setLoading(false)
     }
@@ -105,6 +114,16 @@ export default function Home() {
 
   const fechaLabel = hoy.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
   const nombrePorId = (id: string | null) => data?.personas.find(p => p.id === id)?.nombre ?? "alguien"
+  const nombreAsignado = (id: string | null) => {
+    if (id === null) return "Ambos"
+    if (id === data?.userId) return "Ti"
+    return nombrePorId(id)
+  }
+
+  const marcarHecho = async (id: string) => {
+    await supabase.from("eventos").update({ completado: true, completado_at: new Date().toISOString() }).eq("id", id)
+    setData(prev => prev ? { ...prev, atrasados: prev.atrasados.filter(e => e.id !== id) } : prev)
+  }
 
   return (
     <main className="min-h-screen pb-28 p-4">
@@ -154,15 +173,40 @@ export default function Home() {
           </div>
         )}
 
-        {/* Próximos eventos */}
-        {(data?.eventos?.length ?? 0) > 0 && (
+        {/* Se quedó pendiente — tareas atrasadas sin completar */}
+        {(data?.atrasados?.length ?? 0) > 0 && (
+          <>
+            <p className="text-xs uppercase tracking-widest text-red-400 mb-2 mt-4 flex items-center gap-1">
+              <AlertTriangle size={11} /> Se quedó pendiente
+            </p>
+            <div className="space-y-2 mb-4">
+              {data!.atrasados.map(e => (
+                <div key={e.id} className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 flex items-center gap-3">
+                  <button
+                    onClick={() => marcarHecho(e.id)}
+                    className="w-5 h-5 rounded-full border-2 border-red-400/50 hover:border-red-400 flex items-center justify-center shrink-0 transition"
+                  >
+                    <Check size={11} className="text-red-400 opacity-0 hover:opacity-100" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{e.titulo}</p>
+                    <p className="text-xs text-red-300/70">{formatFechaEvento(e.fecha)} · {nombreAsignado(e.asignado_a)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Próximos eventos y tareas */}
+        {(data?.proximos?.length ?? 0) > 0 && (
           <>
             <p className="text-xs uppercase tracking-widest text-muted mb-2 mt-4">Próximamente</p>
             <div className="space-y-2 mb-4">
-              {data!.eventos.map((e, i) => {
+              {data!.proximos.map((e) => {
                 const { label, urgent } = diasHasta(e.fecha)
                 return (
-                  <div key={i} className="surface border-subtle rounded-2xl p-4 flex items-center gap-3">
+                  <div key={e.id} className="surface border-subtle rounded-2xl p-4 flex items-center gap-3">
                     <div
                       className={`w-2 h-2 rounded-full shrink-0 ${urgent ? "accent-glow" : ""}`}
                       style={{ background: urgent ? "var(--accent)" : "rgba(255,255,255,0.2)" }}
@@ -170,7 +214,7 @@ export default function Home() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{e.titulo}</p>
                       <p className="text-xs text-muted">
-                        {formatFechaEvento(e.fecha)}{e.hora ? ` · ${e.hora}` : ""}
+                        {formatFechaEvento(e.fecha)}{e.hora ? ` · ${e.hora}` : ""} · {nombreAsignado(e.asignado_a)}
                       </p>
                     </div>
                     <span
