@@ -1,15 +1,9 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
-import type { Gasto, GastoInsert, Categoria, Division } from "@/lib/types"
-import { Trash2, Plus, TrendingUp } from "lucide-react"
-
-const DIVISION_LABELS: Record<Division, string> = {
-  "50-50": "Mitad y mitad",
-  oscar:   "Oscar paga",
-  pareja:  "Pareja paga",
-}
+import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad } from "@/lib/types"
+import { Trash2, Plus, TrendingUp, Lock, Users } from "lucide-react"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -22,16 +16,20 @@ const ultimoDiaMes = (mesActivo: string) => {
 export default function FinanzasPage() {
   const [gastos,     setGastos]     = useState<Gasto[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [perfiles,   setPerfiles]   = useState<Perfil[]>([])
+  const [userId,     setUserId]     = useState<string | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState<string | null>(null)
 
   const [concepto,    setConcepto]    = useState("")
-  const [valor,       setValor]       = useState("")
-  const [division,    setDivision]    = useState<Division>("50-50")
-  const [categoriaId, setCategoriaId] = useState("")
-  const [fecha,       setFecha]       = useState(hoy())
-  const [mesActivo,   setMesActivo]   = useState(() => hoy().slice(0, 7))
+  const [valor,        setValor]       = useState("")
+  const [visibilidad,  setVisibilidad] = useState<GastoVisibilidad>("compartido")
+  const [pagadoPor,    setPagadoPor]   = useState<string>("")
+  const [pctPagador,   setPctPagador]  = useState(50)
+  const [categoriaId,  setCategoriaId] = useState("")
+  const [fecha,        setFecha]       = useState(hoy())
+  const [mesActivo,    setMesActivo]   = useState(() => hoy().slice(0, 7))
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
@@ -40,39 +38,62 @@ export default function FinanzasPage() {
     const fechaInicio = `${mesActivo}-01`
     const fechaFin    = ultimoDiaMes(mesActivo)
 
-    const [{ data: cats }, { data: gastsData, error: gastosErr }] = await Promise.all([
-      supabase.from("categorias").select("*").order("nombre"),
-      supabase
-        .from("gastos")
-        .select("*, categorias(id, nombre, emoji)")
-        .gte("fecha", fechaInicio)
-        .lte("fecha", fechaFin)
-        .order("fecha", { ascending: false }),
-    ])
+    const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }] =
+      await Promise.all([
+        supabase.auth.getUser(),
+        supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
+        supabase.from("categorias").select("*").order("nombre"),
+        supabase
+          .from("gastos")
+          .select("*, categorias(id, nombre, emoji)")
+          .gte("fecha", fechaInicio)
+          .lte("fecha", fechaFin)
+          .order("fecha", { ascending: false }),
+      ])
 
     if (gastosErr) {
       setError("Error cargando gastos. Intenta de nuevo.")
     } else {
+      setUserId(user?.id ?? null)
+      setPerfiles(perfilesData ?? [])
       setCategorias(cats ?? [])
       setGastos((gastsData ?? []) as Gasto[])
+      if (!pagadoPor && user?.id) setPagadoPor(user.id)
     }
     setLoading(false)
-  }, [mesActivo])
+  }, [mesActivo, pagadoPor])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
+  const otroPerfil = useMemo(
+    () => perfiles.find(p => p.id !== userId) ?? null,
+    [perfiles, userId]
+  )
+  const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
+  const nombreSujeto = useCallback(
+    (id: string | null) => esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    [perfiles, esYo]
+  )
+  const nombreObjeto = useCallback(
+    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    [perfiles, esYo]
+  )
+
   const guardarGasto = async () => {
     if (!concepto.trim() || !valor || Number(valor) <= 0) return
+    if (visibilidad === "compartido" && !pagadoPor) return
     setGuardando(true)
     setError(null)
 
     const nuevo: GastoInsert = {
-      concepto:     concepto.trim(),
-      valor:        Number(valor),
-      division,
-      categoria_id: categoriaId || null,
+      concepto:           concepto.trim(),
+      valor:               Number(valor),
+      visibilidad,
+      pagado_por:          visibilidad === "compartido" ? pagadoPor : null,
+      porcentaje_pagador:  visibilidad === "compartido" ? pctPagador : null,
+      categoria_id:        categoriaId || null,
       fecha,
-      notas:        null,
+      notas:               null,
     }
 
     const { error: err } = await supabase.from("gastos").insert(nuevo)
@@ -82,7 +103,8 @@ export default function FinanzasPage() {
     } else {
       setConcepto("")
       setValor("")
-      setDivision("50-50")
+      setVisibilidad("compartido")
+      setPctPagador(50)
       setCategoriaId("")
       setFecha(hoy())
       await cargarDatos()
@@ -95,25 +117,32 @@ export default function FinanzasPage() {
     if (!err) setGastos(prev => prev.filter(g => g.id !== id))
   }
 
-  const totalOscar = gastos.reduce((acc, g) => {
-    if (g.division === "50-50") return acc + g.valor / 2
-    if (g.division === "oscar") return acc + g.valor
-    return acc
-  }, 0)
+  const compartidos = useMemo(() => gastos.filter(g => g.visibilidad === "compartido"), [gastos])
+  // RLS ya filtra los privados a solo los míos — lo que llega aquí es 100% mío
+  const personales  = useMemo(() => gastos.filter(g => g.visibilidad === "privado"), [gastos])
 
-  const totalPareja = gastos.reduce((acc, g) => {
-    if (g.division === "50-50") return acc + g.valor / 2
-    if (g.division === "pareja") return acc + g.valor
-    return acc
-  }, 0)
+  const totalCompartido = compartidos.reduce((acc, g) => acc + Number(g.valor), 0)
+  const totalPersonal   = personales.reduce((acc, g) => acc + Number(g.valor), 0)
 
-  const totalMes   = gastos.reduce((acc, g) => acc + g.valor, 0)
-  const diferencia = totalOscar - totalPareja
-  const quienDebe  = diferencia > 0
-    ? "Pareja le debe a Oscar"
-    : diferencia < 0
-    ? "Oscar le debe a Pareja"
-    : null
+  // Saldo real: cuánto adelantó cada uno por encima de su propia parte
+  const saldos = useMemo(() => {
+    const s: Record<string, number> = {}
+    perfiles.forEach(p => { s[p.id] = 0 })
+    compartidos.forEach(g => {
+      if (!g.pagado_por || !(g.pagado_por in s)) return
+      const valorNum = Number(g.valor)
+      const pct = g.porcentaje_pagador ?? 50
+      const parteOtro = valorNum * (100 - pct) / 100
+      const otro = perfiles.find(p => p.id !== g.pagado_por)
+      s[g.pagado_por] += parteOtro
+      if (otro) s[otro.id] -= parteOtro
+    })
+    return s
+  }, [compartidos, perfiles])
+
+  const entradas  = Object.entries(saldos)
+  const acreedor  = entradas.find(([, v]) => v > 0.5)
+  const deudor    = entradas.find(([, v]) => v < -0.5)
 
   const fmt = (n: number) => `$${Math.abs(n).toLocaleString("es-CO")}`
 
@@ -136,26 +165,23 @@ export default function FinanzasPage() {
         </div>
 
         {/* Resumen */}
-        <div className="grid grid-cols-3 gap-2 mb-6">
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="bg-slate-900 rounded-xl p-3">
-            <p className="text-xs text-slate-400 mb-1">Total mes</p>
-            <p className="font-bold text-sm">{fmt(totalMes)}</p>
+            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Users size={11} /> Compartido</p>
+            <p className="font-bold text-sm">{fmt(totalCompartido)}</p>
           </div>
           <div className="bg-slate-900 rounded-xl p-3">
-            <p className="text-xs text-slate-400 mb-1">Oscar</p>
-            <p className="font-bold text-sm text-blue-400">{fmt(totalOscar)}</p>
-          </div>
-          <div className="bg-slate-900 rounded-xl p-3">
-            <p className="text-xs text-slate-400 mb-1">Pareja</p>
-            <p className="font-bold text-sm text-purple-400">{fmt(totalPareja)}</p>
+            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Lock size={11} /> Tus personales</p>
+            <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
           </div>
         </div>
 
-        {/* Balance */}
-        {quienDebe && (
+        {/* Balance real */}
+        {acreedor && deudor && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-6">
             <p className="text-sm text-amber-300">
-              ⚖️ {quienDebe}: <span className="font-bold">{fmt(diferencia)}</span>
+              ⚖️ {nombreSujeto(deudor[0])} le {esYo(deudor[0]) ? "debes" : "debe"} a{" "}
+              {nombreObjeto(acreedor[0])}: <span className="font-bold">{fmt(acreedor[1])}</span>
             </p>
           </div>
         )}
@@ -163,6 +189,26 @@ export default function FinanzasPage() {
         {/* Formulario */}
         <div className="bg-slate-900 rounded-xl p-4 mb-6 space-y-3">
           <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Nuevo gasto</p>
+
+          {/* Privado vs compartido */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setVisibilidad("compartido")}
+              className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              <Users size={13} /> Compartido
+            </button>
+            <button
+              onClick={() => setVisibilidad("privado")}
+              className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                visibilidad === "privado" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              <Lock size={13} /> Personal
+            </button>
+          </div>
 
           <input
             value={concepto}
@@ -200,25 +246,50 @@ export default function FinanzasPage() {
             ))}
           </select>
 
-          <div className="grid grid-cols-3 gap-2">
-            {(["50-50", "oscar", "pareja"] as Division[]).map(d => (
-              <button
-                key={d}
-                onClick={() => setDivision(d)}
-                className={`p-2 rounded-lg text-xs font-medium transition ${
-                  division === d
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                }`}
-              >
-                {DIVISION_LABELS[d]}
-              </button>
-            ))}
-          </div>
+          {/* Quién pagó + cómo se divide — solo si es compartido */}
+          {visibilidad === "compartido" && (
+            <div className="space-y-2 pt-1 border-t border-slate-800">
+              <p className="text-xs text-slate-500 pt-2">¿Quién pagó?</p>
+              <div className="grid grid-cols-2 gap-2">
+                {perfiles.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPagadoPor(p.id)}
+                    className={`p-2 rounded-lg text-xs font-medium truncate transition ${
+                      pagadoPor === p.id ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                    }`}
+                  >
+                    {p.id === userId ? `Tú (${p.nombre})` : p.nombre}
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-xs text-slate-500 pt-1">
+                ¿Cómo se divide? · le corresponde el {pctPagador}% a quien pagó
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { v: 50,  label: "Mitad y mitad" },
+                  { v: 100, label: "Es todo suyo" },
+                  { v: 0,   label: `Es todo de ${otroPerfil ? otroPerfil.nombre : "el otro"}` },
+                ].map(opt => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setPctPagador(opt.v)}
+                    className={`p-2 rounded-lg text-[11px] leading-tight font-medium transition ${
+                      pctPagador === opt.v ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <button
             onClick={guardarGasto}
-            disabled={guardando || !concepto || !valor}
+            disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
           >
             <Plus size={16} />
@@ -253,8 +324,16 @@ export default function FinanzasPage() {
                   <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
                   <div className="min-w-0">
                     <p className="font-medium text-sm truncate">{g.concepto}</p>
-                    <p className="text-xs text-slate-400">
-                      {g.fecha} · {DIVISION_LABELS[g.division]}
+                    <p className="text-xs text-slate-400 flex items-center gap-1">
+                      {g.fecha} ·{" "}
+                      {g.visibilidad === "privado" ? (
+                        <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
+                      ) : (
+                        <span>
+                          {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreSujeto(g.pagado_por)}`}
+                          {" "}· {g.porcentaje_pagador ?? 50}/{100 - (g.porcentaje_pagador ?? 50)}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

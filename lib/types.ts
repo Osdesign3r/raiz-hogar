@@ -24,13 +24,28 @@ export type Categoria = {
   emoji: string
 }
 
-export type Division = '50-50' | 'oscar' | 'pareja'
+export type Perfil = {
+  id: string
+  nombre: string
+  email: string | null
+  avatar_url: string | null
+  accent_color: string | null
+  created_at: string
+}
+
+// privado: solo lo ve quien lo registró, no entra en la liquidación del hogar
+// compartido: visible para el hogar, entra en el cálculo de quién le debe a quién
+export type GastoVisibilidad = 'privado' | 'compartido'
 
 export type Gasto = {
   id: string
+  hogar_id: string
+  user_id: string                    // quién registró el gasto
   concepto: string
   valor: number
-  division: Division
+  visibilidad: GastoVisibilidad
+  pagado_por: string | null          // perfil.id — quién puso el dinero (solo aplica si es compartido)
+  porcentaje_pagador: number | null  // 0-100 — qué % le corresponde a quien pagó; el resto lo debe el otro
   categoria_id: string | null
   fecha: string          // YYYY-MM-DD
   notas: string | null
@@ -39,10 +54,18 @@ export type Gasto = {
   categorias?: Categoria
 }
 
-export type GastoInsert = Omit<Gasto, 'id' | 'created_at' | 'categorias'>
+export type GastoInsert = Omit<
+  Gasto,
+  'id' | 'created_at' | 'categorias' | 'hogar_id' | 'user_id'
+> & {
+  hogar_id?: string   // lo completa el trigger si se omite
+  user_id?: string    // lo completa el trigger si se omite
+}
 
 export type Evento = {
   id: string
+  hogar_id: string
+  user_id: string | null
   titulo: string
   fecha: string          // YYYY-MM-DD
   hora: string | null
@@ -51,20 +74,22 @@ export type Evento = {
   created_at: string
 }
 
-export type EventoInsert = Omit<Evento, 'id' | 'created_at'>
+export type EventoInsert = Omit<Evento, 'id' | 'created_at' | 'hogar_id' | 'user_id'> & {
+  hogar_id?: string
+  user_id?: string
+}
 export type DocumentoCategoria =
+  | "Familia"
   | "Salud"
   | "Educacion"
   | "Finanzas"
-  | "Vivienda"
+  | "Legal"
+  | "Hogar"
   | "Vehiculos"
   | "Mascotas"
-  | "Personal"
   | "Otros"
 
-export type DocumentoVisibilidad =
-  | "shared"
-  | "private"
+export type DocumentoVisibilidad = "privado" | "compartido"
 
 export type Documento = {
   id: string
@@ -77,7 +102,8 @@ export type Documento = {
 
   categoria: DocumentoCategoria
 
-  archivo_url: string
+  archivo_url: string     // path dentro del bucket privado 'documentos', NO una URL pública.
+                           // usar supabase.storage.from('documentos').createSignedUrl(archivo_url, ttl)
 
   visibilidad: DocumentoVisibilidad
 
@@ -85,7 +111,14 @@ export type Documento = {
 
   notas: string | null
 
+  etiquetas: string[] | null
+
   created_by: string
 
   created_at: string
+}
+
+export type DocumentoInsert = Omit<Documento, 'id' | 'created_at' | 'hogar_id' | 'created_by'> & {
+  hogar_id?: string
+  created_by?: string
 }

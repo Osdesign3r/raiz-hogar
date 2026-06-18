@@ -5,11 +5,15 @@ import { supabase } from "@/lib/supabase"
 import Link from "next/link"
 import { Wallet, Calendar, FileText, Settings, TrendingUp } from "lucide-react"
 
+type PersonaTotal = { id: string; nombre: string; total: number }
+
 type DashData = {
   nombre: string
   totalMes: number
-  totalOscar: number
-  totalPareja: number
+  personas: PersonaTotal[]
+  acreedorId: string | null
+  deudorId: string | null
+  diferencia: number
   eventos: { titulo: string; fecha: string; hora: string | null }[]
 }
 
@@ -41,32 +45,56 @@ export default function Home() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      const [perfilRes, gastosRes, eventosRes] = await Promise.all([
+      const [perfilRes, perfilesHogarRes, gastosRes, eventosRes] = await Promise.all([
         supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
-        supabase.from("gastos").select("valor, division").gte("fecha", fechaInicio).lte("fecha", ultimoDia),
+        supabase.from("perfiles").select("id, nombre"),
+        supabase.from("gastos").select("valor, visibilidad, pagado_por, porcentaje_pagador")
+          .eq("visibilidad", "compartido")
+          .gte("fecha", fechaInicio).lte("fecha", ultimoDia),
         supabase.from("eventos").select("titulo, fecha, hora").gte("fecha", fechaHoy)
           .order("fecha", { ascending: true }).limit(3),
       ])
 
-      const gastos = gastosRes.data ?? []
+      const gastos   = gastosRes.data ?? []
+      const personas = perfilesHogarRes.data ?? []
 
-      const totalOscar = gastos.reduce((acc, g) => {
-        if (g.division === "50-50") return acc + Number(g.valor) / 2
-        if (g.division === "oscar") return acc + Number(g.valor)
-        return acc
-      }, 0)
+      // Lo que le corresponde a cada uno (su parte del gasto, no lo que adelantó)
+      const totalesPorPersona: Record<string, number> = {}
+      personas.forEach(p => { totalesPorPersona[p.id] = 0 })
 
-      const totalPareja = gastos.reduce((acc, g) => {
-        if (g.division === "50-50") return acc + Number(g.valor) / 2
-        if (g.division === "pareja") return acc + Number(g.valor)
-        return acc
-      }, 0)
+      // Saldo real: cuánto adelantó cada uno por encima de su propia parte
+      const saldos: Record<string, number> = {}
+      personas.forEach(p => { saldos[p.id] = 0 })
+
+      gastos.forEach(g => {
+        const valorNum = Number(g.valor)
+        const pct = g.porcentaje_pagador ?? 50
+        if (!g.pagado_por) return
+
+        const parteDelPagador = valorNum * pct / 100
+        const parteDelOtro    = valorNum - parteDelPagador
+        const otro = personas.find(p => p.id !== g.pagado_por)
+
+        totalesPorPersona[g.pagado_por] = (totalesPorPersona[g.pagado_por] ?? 0) + parteDelPagador
+        if (otro) totalesPorPersona[otro.id] = (totalesPorPersona[otro.id] ?? 0) + parteDelOtro
+
+        saldos[g.pagado_por] = (saldos[g.pagado_por] ?? 0) + parteDelOtro
+        if (otro) saldos[otro.id] = (saldos[otro.id] ?? 0) - parteDelOtro
+      })
+
+      const totalMes = gastos.reduce((acc, g) => acc + Number(g.valor), 0)
+
+      const entradasSaldo = Object.entries(saldos)
+      const acreedor = entradasSaldo.find(([, v]) => v > 0.5)
+      const deudor   = entradasSaldo.find(([, v]) => v < -0.5)
 
       setData({
         nombre: perfilRes.data?.nombre ?? "tú",
-        totalMes: totalOscar + totalPareja,
-        totalOscar,
-        totalPareja,
+        totalMes,
+        personas: personas.map(p => ({ id: p.id, nombre: p.nombre, total: totalesPorPersona[p.id] ?? 0 })),
+        acreedorId: acreedor ? acreedor[0] : null,
+        deudorId: deudor ? deudor[0] : null,
+        diferencia: acreedor ? acreedor[1] : 0,
         eventos: eventosRes.data ?? [],
       })
       setLoading(false)
@@ -76,10 +104,7 @@ export default function Home() {
   }, [])
 
   const fechaLabel = hoy.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-
-  const pctOscar = data
-    ? data.totalMes > 0 ? Math.round((data.totalOscar / data.totalMes) * 100) : 50
-    : 50
+  const nombrePorId = (id: string | null) => data?.personas.find(p => p.id === id)?.nombre ?? "alguien"
 
   return (
     <main className="min-h-screen pb-28 p-4">
@@ -100,7 +125,7 @@ export default function Home() {
           <div className="absolute -top-8 -right-8 w-28 h-28 rounded-full bg-white/5" />
           <div className="absolute -bottom-6 left-8 w-20 h-20 rounded-full bg-white/4" />
           <p className="text-xs text-white/60 uppercase tracking-widest mb-1">
-            Gasto {hoy.toLocaleDateString("es-CO", { month: "long" })}
+            Gasto compartido {hoy.toLocaleDateString("es-CO", { month: "long" })}
           </p>
           {loading ? (
             <div className="h-9 w-36 rounded-lg bg-white/10 animate-pulse mb-4" />
@@ -110,37 +135,24 @@ export default function Home() {
             </p>
           )}
           <div className="flex gap-2">
-            <div className="bg-white/15 rounded-xl px-3 py-2 flex-1">
-              <p className="text-white/60 text-xs mb-0.5">Oscar</p>
-              <p className="text-white text-sm font-medium">{fmt(data?.totalOscar ?? 0)}</p>
-            </div>
-            <div className="bg-white/15 rounded-xl px-3 py-2 flex-1">
-              <p className="text-white/60 text-xs mb-0.5">Pareja</p>
-              <p className="text-white text-sm font-medium">{fmt(data?.totalPareja ?? 0)}</p>
-            </div>
+            {(data?.personas ?? []).map(p => (
+              <div key={p.id} className="bg-white/15 rounded-xl px-3 py-2 flex-1 min-w-0">
+                <p className="text-white/60 text-xs mb-0.5 truncate">{p.nombre}</p>
+                <p className="text-white text-sm font-medium">{fmt(p.total)}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Barra de balance */}
-        <div className="surface border-subtle rounded-2xl p-4 mb-3">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-xs text-secondary">Oscar · {pctOscar}%</span>
-            <span className="text-xs text-secondary">Pareja · {100 - pctOscar}%</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-            <div
-              className="h-full rounded-full accent-gradient transition-all duration-500"
-              style={{ width: `${pctOscar}%` }}
-            />
-          </div>
-          {data && Math.abs(data.totalOscar - data.totalPareja) > 0 && (
-            <p className="text-xs text-muted mt-2 text-center">
-              {data.totalOscar > data.totalPareja
-                ? `Pareja le debe ${fmt(data.totalOscar - data.totalPareja)}`
-                : `Oscar le debe ${fmt(data.totalPareja - data.totalOscar)}`}
+        {/* Saldo real */}
+        {data && data.acreedorId && data.deudorId && (
+          <div className="surface border-subtle rounded-2xl p-4 mb-3">
+            <p className="text-xs text-muted text-center">
+              {nombrePorId(data.deudorId)} le debe a {nombrePorId(data.acreedorId)}:{" "}
+              <span className="font-semibold" style={{ color: "var(--accent)" }}>{fmt(data.diferencia)}</span>
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Próximos eventos */}
         {(data?.eventos?.length ?? 0) > 0 && (
@@ -183,7 +195,7 @@ export default function Home() {
           {[
             { href: "/finanzas",     icon: Wallet,   label: "Finanzas",    sub: "Gastos del hogar" },
             { href: "/calendario",   icon: Calendar, label: "Calendario",  sub: "Eventos compartidos" },
-            { href: "/documentos",   icon: FileText, label: "Documentos",  sub: "Próximamente" },
+            { href: "/documentos",   icon: FileText, label: "Documentos",  sub: "Bóveda familiar" },
             { href: "/configuracion",icon: Settings, label: "Config",      sub: "Perfil y tema" },
           ].map(({ href, icon: Icon, label, sub }) => (
             <Link key={href} href={href}>

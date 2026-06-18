@@ -34,7 +34,7 @@ export default function FamiliaPage() {
 
     const { error: err } = await supabase
       .from("miembros")
-      .insert({ nombre: nombre.trim(), rol })
+      .insert({ nombre: nombre.trim(), parentesco: rol })
 
     if (err) {
       setError("No se pudo agregar el miembro.")
