@@ -3,8 +3,14 @@
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad } from "@/lib/types"
-import { Trash2, Plus, TrendingUp, Lock, Users } from "lucide-react"
-
+import {
+  Trash2,
+  Plus,
+  TrendingUp,
+  Lock,
+  Users,
+  Pencil
+} from "lucide-react"
 const hoy = () => new Date().toISOString().split("T")[0]
 
 // Último día real del mes — nunca más junio-31
@@ -21,7 +27,8 @@ export default function FinanzasPage() {
   const [loading,    setLoading]    = useState(true)
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState<string | null>(null)
-
+const [editandoId, setEditandoId] = useState<string | null>(null)
+const [filtro, setFiltro] = useState("todos")
   const [concepto,    setConcepto]    = useState("")
   const [valor,        setValor]       = useState("")
   const [visibilidad,  setVisibilidad] = useState<GastoVisibilidad>("compartido")
@@ -96,8 +103,36 @@ export default function FinanzasPage() {
       notas:               null,
     }
 
-    const { error: err } = await supabase.from("gastos").insert(nuevo)
+let err = null
 
+if (editandoId) {
+
+  const res = await supabase
+
+    .from("gastos")
+
+    .update(nuevo)
+
+    .eq(
+      "id",
+      editandoId
+    )
+
+  err = res.error
+
+}
+
+else {
+
+  const res = await supabase
+
+    .from("gastos")
+
+    .insert(nuevo)
+
+  err = res.error
+
+}
     if (err) {
       setError("No se pudo guardar el gasto.")
     } else {
@@ -107,19 +142,92 @@ export default function FinanzasPage() {
       setPctPagador(50)
       setCategoriaId("")
       setFecha(hoy())
+      setEditandoId(null)
       await cargarDatos()
     }
     setGuardando(false)
   }
 
-  const eliminarGasto = async (id: string) => {
-    const { error: err } = await supabase.from("gastos").delete().eq("id", id)
-    if (!err) setGastos(prev => prev.filter(g => g.id !== id))
+const eliminarGasto = async (id: string) => {
+
+  const ok = confirm(
+    "¿Eliminar este gasto?"
+  )
+
+  if (!ok) return
+
+  const { error } =
+    await supabase
+      .from("gastos")
+      .delete()
+      .eq("id", id)
+
+  if (!error) {
+
+    setGastos(prev =>
+      prev.filter(
+        g => g.id !== id
+      )
+    )
+
   }
 
+}
+const editarGasto = (g: Gasto) => {
+
+  setEditandoId(g.id)
+
+  setConcepto(g.concepto)
+
+  setValor(String(g.valor))
+
+  setFecha(g.fecha)
+
+  setCategoriaId(
+    g.categoria_id ?? ""
+  )
+
+  setVisibilidad(
+    g.visibilidad
+  )
+
+  setPagadoPor(
+    g.pagado_por ?? ""
+  )
+
+  setPctPagador(
+    g.porcentaje_pagador ?? 50
+  )
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  })
+
+}
   const compartidos = useMemo(() => gastos.filter(g => g.visibilidad === "compartido"), [gastos])
   // RLS ya filtra los privados a solo los míos — lo que llega aquí es 100% mío
   const personales  = useMemo(() => gastos.filter(g => g.visibilidad === "privado"), [gastos])
+const gastosFiltrados = useMemo(() => {
+
+  return gastos.filter(g => {
+
+    if (
+      filtro === "todos"
+    )
+
+      return true
+
+    return g.visibilidad === filtro
+
+  })
+
+},
+
+[
+  gastos,
+  filtro
+])
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + Number(g.valor), 0)
   const totalPersonal   = personales.reduce((acc, g) => acc + Number(g.valor), 0)
@@ -293,7 +401,14 @@ export default function FinanzasPage() {
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
           >
             <Plus size={16} />
-            {guardando ? "Guardando..." : "Agregar gasto"}
+
+{
+guardando
+? "Guardando..."
+: editandoId
+? "Actualizar gasto"
+: "Agregar gasto"
+}
           </button>
         </div>
 
@@ -303,7 +418,42 @@ export default function FinanzasPage() {
             {error}
           </div>
         )}
+<div className="grid grid-cols-3 gap-2 mb-4">
 
+<button
+onClick={() => setFiltro("todos")}
+className={`p-2 rounded-lg text-xs ${
+filtro==="todos"
+? "bg-blue-600"
+: "bg-slate-800"
+}`}
+>
+Todos
+</button>
+
+<button
+onClick={() => setFiltro("compartido")}
+className={`p-2 rounded-lg text-xs ${
+filtro==="compartido"
+? "bg-blue-600"
+: "bg-slate-800"
+}`}
+>
+Compartidos
+</button>
+
+<button
+onClick={() => setFiltro("privado")}
+className={`p-2 rounded-lg text-xs ${
+filtro==="privado"
+? "bg-blue-600"
+: "bg-slate-800"
+}`}
+>
+Personal
+</button>
+
+</div>
         {/* Lista */}
         {loading ? (
           <div className="space-y-3">
@@ -311,14 +461,14 @@ export default function FinanzasPage() {
               <div key={i} className="bg-slate-900 rounded-xl h-16 animate-pulse" />
             ))}
           </div>
-        ) : gastos.length === 0 ? (
+        ) : gastosFiltrados.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <p className="text-3xl mb-2">💸</p>
             <p className="text-sm">No hay gastos este mes</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {gastos.map(g => (
+            {gastosFiltrados.map(g => (
               <div key={g.id} className="bg-slate-900 rounded-xl p-4 flex items-center justify-between group">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
@@ -337,15 +487,27 @@ export default function FinanzasPage() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <p className="font-bold text-sm">{fmt(g.valor)}</p>
-                  <button
-                    onClick={() => eliminarGasto(g.id)}
-                    className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
+               <div className="flex items-center gap-2 shrink-0">
+
+  <p className="font-bold text-sm">
+    {fmt(g.valor)}
+  </p>
+
+  <button
+    onClick={() => editarGasto(g)}
+    className="text-slate-500 hover:text-blue-400"
+  >
+    <Pencil size={15} />
+  </button>
+
+  <button
+    onClick={() => eliminarGasto(g.id)}
+    className="text-slate-500 hover:text-red-400"
+  >
+    <Trash2 size={15} />
+  </button>
+
+</div>
               </div>
             ))}
           </div>
