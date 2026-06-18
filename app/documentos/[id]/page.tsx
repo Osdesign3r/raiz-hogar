@@ -115,7 +115,7 @@ export default function MiembroDocumentosPage() {
                 </p>
               </div>
 
-              {doc.visibilidad === "shared" ? (
+              {doc.visibilidad === "compartido" ? (
                 <Users
                   size={16}
                   className="text-green-400"
