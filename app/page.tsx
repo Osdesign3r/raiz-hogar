@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+
 import { supabase } from "@/lib/supabase"
 import Link from "next/link"
 import { Wallet, Calendar, FileText, Settings, AlertTriangle, Check } from "lucide-react"
@@ -30,15 +31,39 @@ const fmt = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n)
 
 const diasHasta = (fecha: string) => {
-  const diff = Math.ceil((new Date(fecha + "T12:00:00").getTime() - hoy.getTime()) / 86400000)
-  if (diff === 0) return { label: "Hoy", urgent: true }
-  if (diff === 1) return { label: "Mañana", urgent: true }
-  return { label: `${diff} días`, urgent: false }
+
+  const hoyNormalizado = new Date()
+  hoyNormalizado.setHours(12,0,0,0)
+
+  const evento = new Date(fecha + "T12:00:00")
+
+  const diff = Math.round(
+    (evento.getTime() - hoyNormalizado.getTime()) / 86400000
+  )
+
+  if (diff <= 0)
+    return { label: "Hoy", urgent: true }
+
+  if (diff === 1)
+    return { label: "Mañana", urgent: true }
+if (diff < 0)
+  return { label: "Atrasado", urgent: true }
+  return {
+    label: `${diff} días`,
+    urgent: false
+  }
+
 }
 
 const formatFechaEvento = (f: string) =>
   new Date(f + "T12:00:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" })
+const formatHora = (h: string | null) => {
 
+  if (!h) return ""
+
+  return h.slice(0, 5)
+
+}
 export default function Home() {
   const [data, setData] = useState<DashData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -116,7 +141,7 @@ export default function Home() {
   const nombrePorId = (id: string | null) => data?.personas.find(p => p.id === id)?.nombre ?? "alguien"
   const nombreAsignado = (id: string | null) => {
     if (id === null) return "Ambos"
-    if (id === data?.userId) return "Ti"
+    if (id === data?.userId) return "Tú"
     return nombrePorId(id)
   }
 
@@ -213,9 +238,19 @@ export default function Home() {
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{e.titulo}</p>
-                      <p className="text-xs text-muted">
-                        {formatFechaEvento(e.fecha)}{e.hora ? ` · ${e.hora}` : ""} · {nombreAsignado(e.asignado_a)}
-                      </p>
+                     <p className="text-xs text-muted">
+  {formatFechaEvento(e.fecha)}
+
+  {e.hora && (
+    <>
+      {" · "}
+      {formatHora(e.hora)}
+    </>
+  )}
+
+  {" · "}
+  {nombreAsignado(e.asignado_a)}
+</p>
                     </div>
                     <span
                       className="text-xs px-2 py-1 rounded-full shrink-0"
