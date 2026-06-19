@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import SWRegister from "@/components/SWRegister"
 import "./globals.css"
@@ -9,12 +9,30 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] })
 
 export const metadata: Metadata = {
- 
   title: "Nuestro Hogar",
-
   manifest: "/manifest.webmanifest",
 
-  themeColor: "#2563eb"
+  // Sin esto, "Agregar a inicio" en iOS no corre en standalone y usa una
+  // captura de pantalla en vez de tu ícono — Next.js genera los meta tags
+  // apple-mobile-web-app-* automáticamente a partir de este campo.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Hogar",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icon-192.png",
+  },
+}
+
+// themeColor vivía dentro de `metadata` — deprecado desde Next 14, Next.js
+// lo ignora silenciosamente ahí. Va en su propio export `viewport`.
+export const viewport: Viewport = {
+  themeColor: "#2563eb",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

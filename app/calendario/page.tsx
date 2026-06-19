@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Evento, EventoInsert, EventoTipo, Perfil } from "@/lib/types"
-import { CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle } from "lucide-react"
+import { CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil,
+X } from "lucide-react"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -37,12 +38,13 @@ export default function CalendarioPage() {
   const [error,     setError]     = useState<string | null>(null)
 
   const [titulo,      setTitulo]      = useState("")
-  const [fecha,        setFecha]       = useState(hoy())
+  const [fecha,        setFecha]       = useState("")
   const [hora,         setHora]        = useState("")
   const [color,        setColor]       = useState("blue")
   const [tipo,         setTipo]        = useState<EventoTipo>("evento")
   const [asignadoA,    setAsignadoA]   = useState<string | null>(null) // null = ambos
   const [descripcion,  setDescripcion] = useState("")
+  const [editandoId,setEditandoId]=useState<string|null>(null)
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -50,17 +52,70 @@ export default function CalendarioPage() {
       supabase.auth.getUser(),
       supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
       supabase
-        .from("eventos")
-        .select("*")
-        .order("fecha", { ascending: true }),
+     .from("eventos")
+
+.select("*")
+
+.order("fecha", { ascending: true })
+
+.order("hora", { ascending: true }),
     ])
     setUserId(user?.id ?? null)
     setPerfiles(perfilesData ?? [])
     if (!err) setEventos(data ?? [])
     setLoading(false)
   }, [])
+useEffect(() => {
+  setFecha(hoy())
+}, [])
+  useEffect(()=>{
 
-  useEffect(() => { cargar() }, [cargar])
+
+cargar()
+
+
+
+const channel = supabase
+
+
+.channel("eventos")
+
+
+.on(
+
+'postgres_changes',
+
+{
+
+event:'*',
+
+schema:'public',
+
+table:'eventos'
+
+},
+
+()=>{
+
+cargar()
+
+}
+
+)
+
+
+.subscribe()
+
+
+
+return ()=>{
+
+supabase.removeChannel(channel)
+
+}
+
+
+},[cargar])
 
   const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
@@ -68,7 +123,44 @@ export default function CalendarioPage() {
     (id: string | null) => id === null ? "Ambos" : esYo(id) ? "Ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
+const editarEvento=(e:Evento)=>{
 
+setEditandoId(e.id)
+
+setTitulo(e.titulo)
+
+setFecha(e.fecha)
+
+setHora(e.hora || "")
+
+setColor(e.color)
+
+setTipo(e.tipo)
+
+setAsignadoA(e.asignado_a)
+
+setDescripcion(e.descripcion || "")
+
+}
+const cancelarEdicion=()=>{
+
+setEditandoId(null)
+
+setTitulo("")
+
+setFecha(hoy())
+
+setHora("")
+
+setColor("blue")
+
+setTipo("evento")
+
+setAsignadoA(null)
+
+setDescripcion("")
+
+}
   const guardar = async () => {
     if (!titulo.trim() || !fecha) return
     setGuardando(true)
@@ -85,10 +177,22 @@ export default function CalendarioPage() {
       recordatorio_minutos_antes: null,
     }
 
-    const { error: err } = await supabase.from("eventos").insert(nuevo)
-    if (err) {
+    const res = editandoId
+
+? await supabase
+.from("eventos")
+.update(nuevo)
+.eq("id",editandoId)
+
+: await supabase
+.from("eventos")
+.insert(nuevo)
+
+const err = res.error
+    if(err){
       setError("No se pudo guardar.")
     } else {
+      setEditandoId(null)
       setTitulo("")
       setFecha(hoy())
       setHora("")
@@ -101,10 +205,41 @@ export default function CalendarioPage() {
     setGuardando(false)
   }
 
-  const eliminar = async (id: string) => {
-    const { error: err } = await supabase.from("eventos").delete().eq("id", id)
-    if (!err) setEventos(prev => prev.filter(e => e.id !== id))
+const eliminar = async (id: string) => {
+
+  const ok = confirm(
+
+    "¿Eliminar este elemento?"
+
+  )
+
+  if (!ok) return
+
+
+  const { error } = await supabase
+
+    .from("eventos")
+
+    .delete()
+
+    .eq("id", id)
+
+
+  if (!error) {
+
+    setEventos(prev =>
+
+      prev.filter(
+
+        e => e.id !== id
+
+      )
+
+    )
+
   }
+
+}
 
   const marcarCompletado = async (e: Evento) => {
     const completado = !e.completado
@@ -125,7 +260,19 @@ export default function CalendarioPage() {
     () => eventos.filter(e => e.fecha >= hoy() && !(e.tipo === "tarea" && e.completado)),
     [eventos]
   )
+const completadas = useMemo(
 
+()=>eventos.filter(
+
+e=>e.tipo==="tarea"
+
+&& e.completado
+
+),
+
+[eventos]
+
+)
   // Agrupar próximos por fecha
   const proximosPorFecha = proximos.reduce<Record<string, Evento[]>>((acc, e) => {
     if (!acc[e.fecha]) acc[e.fecha] = []
@@ -153,25 +300,86 @@ export default function CalendarioPage() {
           <div className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[e.color] ?? "bg-slate-500"}`} />
         )}
         <div className="min-w-0">
-          <p className={`font-medium text-sm truncate ${e.completado ? "line-through text-slate-500" : ""}`}>
-            {e.titulo}
-          </p>
-          <p className="text-xs text-slate-400 flex items-center gap-1">
-            {e.hora && <span>{e.hora} · </span>}
-            <span className={
-              e.asignado_a === null ? "text-blue-400" : esYo(e.asignado_a) ? "text-emerald-400" : "text-purple-400"
-            }>
-              {nombreAsignado(e.asignado_a)}
-            </span>
-          </p>
+           <p
+    className={`font-medium text-sm truncate ${
+      e.completado
+        ? "line-through text-slate-500"
+        : ""
+    }`}
+  >
+    {e.titulo}
+  </p>
+
+
+  {e.descripcion && (
+
+    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+
+      {e.descripcion}
+
+    </p>
+
+  )}
+
+
+ <p className="text-xs text-slate-400 flex items-center gap-2 mt-1">
+
+{e.hora && (
+
+<>
+
+<span>🕒</span>
+
+<span>{e.hora.slice(0,5)}</span>
+
+</>
+
+)}
+
+
+<span>👤</span>
+
+<span>
+
+{nombreAsignado(e.asignado_a)}
+
+</span>
+
+
+</p>
         </div>
       </div>
-      <button
-        onClick={() => eliminar(e.id)}
-        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shrink-0"
-      >
-        <Trash2 size={15} />
-      </button>
+     <div className="flex gap-2">
+
+
+<button
+
+onClick={()=>editarEvento(e)}
+
+className="text-slate-600 hover:text-green-400 opacity-0 group-hover:opacity-100"
+
+>
+
+<Pencil size={15}/>
+
+</button>
+
+
+
+<button
+
+onClick={()=>eliminar(e.id)}
+
+className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100"
+
+>
+
+<Trash2 size={15}/>
+
+</button>
+
+
+</div>
     </div>
   )
 
@@ -179,11 +387,23 @@ export default function CalendarioPage() {
     <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
       <div className="max-w-md mx-auto">
 
-        <h1 className="text-2xl font-bold mb-6">Calendario</h1>
+        <h1 className="text-2xl font-bold mb-1">
+
+Agenda Familiar
+
+</h1>
+
+<p className="text-sm text-slate-500 mb-6">
+
+Lo que necesita atención en casa
+
+</p>
 
         {/* Formulario */}
         <div className="bg-slate-900 rounded-xl p-4 space-y-3 mb-6">
-          <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Nuevo</p>
+          <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">
+  {editandoId ? "Corrigiendo plan" : "Nuevo"}
+</p>
 
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -278,15 +498,26 @@ export default function CalendarioPage() {
             </div>
           )}
 
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+         {error && <p className="text-red-400 text-xs">{error}</p>}
 
-          <button
-            onClick={guardar}
-            disabled={guardando || !titulo.trim() || !fecha}
-            className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
-          >
+{editandoId && (
+  <button
+    onClick={cancelarEdicion}
+    className="w-full p-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium transition mb-2"
+  >
+    Cancelar edición
+  </button>
+)}
+
+<button
+  onClick={guardar}
+  disabled={guardando || !titulo.trim() || !fecha}
+  className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
+>
             <CalendarPlus size={16} />
-            {guardando ? "Guardando..." : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
+            {guardando ? "Guardando..." : tipo === "tarea"
+? "Agregar tarea"
+: "Agregar evento"}
           </button>
         </div>
 
@@ -311,12 +542,23 @@ export default function CalendarioPage() {
             )}
 
             {/* Próximos, agrupados por fecha */}
-            {Object.keys(proximosPorFecha).length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <Calendar size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No hay nada próximo</p>
-              </div>
-            ) : (
+           {Object.keys(proximosPorFecha).length === 0 ? (
+  <div className="text-center py-12">
+
+    <div className="text-4xl mb-3">
+      🌿
+    </div>
+
+    <p className="text-base font-medium text-slate-300">
+      La casa está en calma
+    </p>
+
+    <p className="text-sm text-slate-500 mt-1">
+      No hay tareas pendientes ni eventos próximos
+    </p>
+
+  </div>
+) : (
               <div className="space-y-4">
                 {Object.entries(proximosPorFecha).map(([f, evts]) => (
                   <div key={f}>
@@ -330,6 +572,34 @@ export default function CalendarioPage() {
                 ))}
               </div>
             )}
+            {completadas.length>0 && (
+
+<div className="mt-6">
+
+
+<p className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+
+Completadas
+
+</p>
+
+
+<div className="space-y-2">
+
+
+{completadas.map(
+
+e=>renderItem(e)
+
+)}
+
+
+</div>
+
+
+</div>
+
+)}
           </>
         )}
 
