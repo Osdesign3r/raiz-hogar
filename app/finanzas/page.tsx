@@ -1,23 +1,29 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad } from "@/lib/types"
-import {
-  Trash2,
-  Plus,
-  TrendingUp,
-  Lock,
-  Users,
-  Pencil
-} from "lucide-react"
+import { Trash2, Plus, TrendingUp, Lock, Users, Pencil, X } from "lucide-react"
+
 const hoy = () => new Date().toISOString().split("T")[0]
 
-// Último día real del mes — nunca más junio-31
-const ultimoDiaMes = (mesActivo: string) => {
-  const [año, mes] = mesActivo.split("-").map(Number)
-  return new Date(año, mes, 0).toISOString().split("T")[0]
+const ultimoDiaMes = (mes: string) => {
+  const [año, m] = mes.split("-").map(Number)
+  return new Date(año, m, 0).toISOString().split("T")[0]
 }
+
+const fmt = (n: number) =>
+  `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
+
+// ─── Tipos auxiliares ────────────────────────────────────────────────────────
+
+type ResumenPersona = Perfil & {
+  pagado:          number   // lo que puso de su bolsillo este mes
+  responsabilidad: number   // lo que le correspondía pagar
+  saldo:           number   // pagado - responsabilidad: > 0 → le deben, < 0 → debe
+}
+
+// ─── Componente ─────────────────────────────────────────────────────────────
 
 export default function FinanzasPage() {
   const [gastos,     setGastos]     = useState<Gasto[]>([])
@@ -27,16 +33,21 @@ export default function FinanzasPage() {
   const [loading,    setLoading]    = useState(true)
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState<string | null>(null)
-const [editandoId, setEditandoId] = useState<string | null>(null)
-const [filtro, setFiltro] = useState("todos")
-  const [concepto,    setConcepto]    = useState("")
-  const [valor,        setValor]       = useState("")
-  const [visibilidad,  setVisibilidad] = useState<GastoVisibilidad>("compartido")
-  const [pagadoPor,    setPagadoPor]   = useState<string>("")
-  const [pctPagador,   setPctPagador]  = useState(50)
-  const [categoriaId,  setCategoriaId] = useState("")
-  const [fecha,        setFecha]       = useState(hoy())
-  const [mesActivo,    setMesActivo]   = useState(() => hoy().slice(0, 7))
+
+  const [editandoId,    setEditandoId]    = useState<string | null>(null)
+  const [editandoAjeno, setEditandoAjeno] = useState(false)
+  const [filtro,        setFiltro]        = useState<"todos" | "compartido" | "privado">("todos")
+
+  const [concepto,   setConcepto]   = useState("")
+  const [valor,      setValor]      = useState("")
+  const [visibilidad,setVisibilidad]= useState<GastoVisibilidad>("compartido")
+  const [pagadoPor,  setPagadoPor]  = useState<string>("")
+  const [pctPagador, setPctPagador] = useState(50)
+  const [categoriaId,setCategoriaId]= useState("")
+  const [fecha,      setFecha]      = useState(hoy())
+  const [mesActivo,  setMesActivo]  = useState(() => hoy().slice(0, 7))
+
+  // ── Carga de datos ────────────────────────────────────────────────────────
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
@@ -65,12 +76,19 @@ const [filtro, setFiltro] = useState("todos")
       setPerfiles(perfilesData ?? [])
       setCategorias(cats ?? [])
       setGastos((gastsData ?? []) as Gasto[])
-      if (!pagadoPor && user?.id) setPagadoPor(user.id)
     }
     setLoading(false)
-  }, [mesActivo, pagadoPor])
+  }, [mesActivo])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
+
+  // Default del pagador a "yo" — separado de cargarDatos para no recargar
+  // la página entera cada vez que se cambia el selector de "¿Quién pagó?"
+  useEffect(() => {
+    if (!pagadoPor && userId) setPagadoPor(userId)
+  }, [userId, pagadoPor])
+
+  // ── Helpers de nombre ─────────────────────────────────────────────────────
 
   const otroPerfil = useMemo(
     () => perfiles.find(p => p.id !== userId) ?? null,
@@ -78,13 +96,55 @@ const [filtro, setFiltro] = useState("todos")
   )
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
   const nombreSujeto = useCallback(
-    (id: string | null) => esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) =>
+      esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
   const nombreObjeto = useCallback(
-    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) =>
+      esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
+
+  // ── Edición ───────────────────────────────────────────────────────────────
+
+  const cancelarEdicion = useCallback(() => {
+    setEditandoId(null)
+    setEditandoAjeno(false)
+    setConcepto("")
+    setValor("")
+    setVisibilidad("compartido")
+    setPctPagador(50)
+    setCategoriaId("")
+    setFecha(hoy())
+    if (userId) setPagadoPor(userId)
+  }, [userId])
+
+  const cancelarRef    = useRef(cancelarEdicion)
+  cancelarRef.current  = cancelarEdicion
+  const editandoIdRef  = useRef(editandoId)
+  editandoIdRef.current = editandoId
+
+  // Al cambiar de mes, cancela solo si había una edición abierta
+  // (no debe limpiar el formulario si estabas creando uno nuevo)
+  useEffect(() => {
+    if (editandoIdRef.current) cancelarRef.current()
+  }, [mesActivo])
+
+  const editarGasto = (g: Gasto) => {
+    setEditandoId(g.id)
+    setEditandoAjeno(g.user_id !== userId)
+    setConcepto(g.concepto)
+    setValor(String(g.valor))
+    setFecha(g.fecha)
+    setCategoriaId(g.categoria_id ?? "")
+    setVisibilidad(g.visibilidad)
+    setPagadoPor(g.pagado_por ?? "")
+    setPctPagador(g.porcentaje_pagador ?? 50)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  // ── CRUD ─────────────────────────────────────────────────────────────────
 
   const guardarGasto = async () => {
     if (!concepto.trim() || !valor || Number(valor) <= 0) return
@@ -92,174 +152,105 @@ const [filtro, setFiltro] = useState("todos")
     setGuardando(true)
     setError(null)
 
-    const nuevo: GastoInsert = {
-      concepto:           concepto.trim(),
-      valor:               Number(valor),
+    const payload: GastoInsert = {
+      concepto:          concepto.trim(),
+      valor:             Number(valor),
       visibilidad,
-      pagado_por:          visibilidad === "compartido" ? pagadoPor : null,
-      porcentaje_pagador:  visibilidad === "compartido" ? pctPagador : null,
-      categoria_id:        categoriaId || null,
+      pagado_por:        visibilidad === "compartido" ? pagadoPor : null,
+      porcentaje_pagador:visibilidad === "compartido" ? pctPagador : null,
+      categoria_id:      categoriaId || null,
       fecha,
-      notas:               null,
+      notas:             null,
     }
 
-let err = null
+    const res = editandoId
+      ? await supabase.from("gastos").update(payload).eq("id", editandoId)
+      : await supabase.from("gastos").insert(payload)
 
-if (editandoId) {
-
-  const res = await supabase
-
-    .from("gastos")
-
-    .update(nuevo)
-
-    .eq(
-      "id",
-      editandoId
-    )
-
-  err = res.error
-
-}
-
-else {
-
-  const res = await supabase
-
-    .from("gastos")
-
-    .insert(nuevo)
-
-  err = res.error
-
-}
-    if (err) {
+    if (res.error) {
       setError("No se pudo guardar el gasto.")
     } else {
-      setConcepto("")
-      setValor("")
-      setVisibilidad("compartido")
-      setPctPagador(50)
-      setCategoriaId("")
-      setFecha(hoy())
-      setEditandoId(null)
+      cancelarEdicion()
       await cargarDatos()
     }
     setGuardando(false)
   }
 
-const eliminarGasto = async (id: string) => {
-
-  const ok = confirm(
-    "¿Eliminar este gasto?"
-  )
-
-  if (!ok) return
-
-  const { error } =
-    await supabase
-      .from("gastos")
-      .delete()
-      .eq("id", id)
-
-  if (!error) {
-
-    setGastos(prev =>
-      prev.filter(
-        g => g.id !== id
-      )
-    )
-
+  const eliminarGasto = async (id: string) => {
+    if (!confirm("¿Eliminar este gasto?")) return
+    const { error: err } = await supabase.from("gastos").delete().eq("id", id)
+    if (!err) {
+      setGastos(prev => prev.filter(g => g.id !== id))
+      if (editandoId === id) cancelarEdicion()
+    }
   }
 
-}
-const editarGasto = (g: Gasto) => {
+  // ── Cálculos ─────────────────────────────────────────────────────────────
 
-  setEditandoId(g.id)
-
-  setConcepto(g.concepto)
-
-  setValor(String(g.valor))
-
-  setFecha(g.fecha)
-
-  setCategoriaId(
-    g.categoria_id ?? ""
-  )
-
-  setVisibilidad(
-    g.visibilidad
-  )
-
-  setPagadoPor(
-    g.pagado_por ?? ""
-  )
-
-  setPctPagador(
-    g.porcentaje_pagador ?? 50
-  )
-
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  })
-
-}
   const compartidos = useMemo(() => gastos.filter(g => g.visibilidad === "compartido"), [gastos])
-  // RLS ya filtra los privados a solo los míos — lo que llega aquí es 100% mío
-  const personales  = useMemo(() => gastos.filter(g => g.visibilidad === "privado"), [gastos])
-const gastosFiltrados = useMemo(() => {
+  const personales  = useMemo(() => gastos.filter(g => g.visibilidad === "privado"),    [gastos])
 
-  return gastos.filter(g => {
+  const gastosFiltrados = useMemo(() => {
+    if (filtro === "todos") return gastos
+    return gastos.filter(g => g.visibilidad === filtro)
+  }, [gastos, filtro])
 
-    if (
-      filtro === "todos"
-    )
+  /**
+   * Resumen por persona — un solo memo, fuente única de verdad:
+   *
+   *   pagado         = suma de lo que puso de su bolsillo
+   *   responsabilidad= suma de lo que le tocaba pagar según el split de cada gasto
+   *   saldo          = pagado - responsabilidad
+   *                    > 0 → le deben (acreedor)
+   *                    < 0 → debe (deudor)
+   *
+   * Verificación algebraica:
+   *   Si Oscar paga $100k (50/50) y Catherine paga $60k (50/50):
+   *     pagado[Oscar] = 100k, resp[Oscar] = 80k → saldo = +20k  (le deben 20k) ✓
+   *     pagado[Cath]  = 60k,  resp[Cath]  = 80k → saldo = -20k  (debe 20k)    ✓
+   *   Suma de saldos = 0 siempre (condición de consistencia).
+   */
+  const resumenPorPersona = useMemo((): ResumenPersona[] => {
+    const pagado:    Record<string, number> = {}
+    const resp:      Record<string, number> = {}
+    perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
 
-      return true
-
-    return g.visibilidad === filtro
-
-  })
-
-},
-
-[
-  gastos,
-  filtro
-])
-
-  const totalCompartido = compartidos.reduce((acc, g) => acc + Number(g.valor), 0)
-  const totalPersonal   = personales.reduce((acc, g) => acc + Number(g.valor), 0)
-
-  // Saldo real: cuánto adelantó cada uno por encima de su propia parte
-  const saldos = useMemo(() => {
-    const s: Record<string, number> = {}
-    perfiles.forEach(p => { s[p.id] = 0 })
     compartidos.forEach(g => {
-      if (!g.pagado_por || !(g.pagado_por in s)) return
-      const valorNum = Number(g.valor)
+      const v   = Number(g.valor) || 0
       const pct = g.porcentaje_pagador ?? 50
-      const parteOtro = valorNum * (100 - pct) / 100
+      if (!g.pagado_por || !(g.pagado_por in pagado)) return
+
+      // Quién puso el dinero
+      pagado[g.pagado_por] += v
+
+      // Quién es responsable de qué porción
+      resp[g.pagado_por] += v * pct / 100
       const otro = perfiles.find(p => p.id !== g.pagado_por)
-      s[g.pagado_por] += parteOtro
-      if (otro) s[otro.id] -= parteOtro
+      if (otro) resp[otro.id] += v * (100 - pct) / 100
     })
-    return s
+
+    return perfiles.map(p => ({
+      ...p,
+      pagado:          pagado[p.id] ?? 0,
+      responsabilidad: resp[p.id]   ?? 0,
+      saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
+    }))
   }, [compartidos, perfiles])
 
-  const entradas  = Object.entries(saldos)
-  const acreedor  = entradas.find(([, v]) => v > 0.5)
-  const deudor    = entradas.find(([, v]) => v < -0.5)
+  const totalCompartido  = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
+  const totalPersonal    = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
 
-  const fmt = (n: number) => `$${Math.abs(n).toLocaleString("es-CO")}`
+  const acreedor = resumenPorPersona.find(p => p.saldo >  0.5)
+  const deudor   = resumenPorPersona.find(p => p.saldo < -0.5)
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
       <div className="max-w-md mx-auto">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-5">
           <h1 className="text-2xl font-bold">Finanzas</h1>
           <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-2 py-1">
             <TrendingUp size={14} className="text-slate-400" />
@@ -272,33 +263,85 @@ const gastosFiltrados = useMemo(() => {
           </div>
         </div>
 
-        {/* Resumen */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <div className="bg-slate-900 rounded-xl p-3">
-            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Users size={11} /> Compartido</p>
-            <p className="font-bold text-sm">{fmt(totalCompartido)}</p>
+        {/* ── Resumen Splitwise-style ─────────────────────────────────────── */}
+        {/* Muestra lo que pagó cada uno, lo que le correspondía y el balance.
+            Esto hace la liquidación AUDITABLE: cualquiera puede verificar la
+            cuenta con una calculadora sin tener que "confiar en la app". */}
+        <div className="bg-slate-900 rounded-2xl p-4 mb-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wide flex items-center gap-1">
+              <Users size={11} /> Gasto compartido
+            </p>
+            <p className="text-sm font-bold">{fmt(totalCompartido)}</p>
           </div>
-          <div className="bg-slate-900 rounded-xl p-3">
-            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Lock size={11} /> Tus personales</p>
-            <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
-          </div>
+
+          {resumenPorPersona.map(p => (
+            <div key={p.id} className="bg-slate-800 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium">{esYo(p.id) ? `Tú (${p.nombre})` : p.nombre}</p>
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    p.saldo > 0.5  ? "bg-green-500/15 text-green-400" :
+                    p.saldo < -0.5 ? "bg-red-500/15 text-red-400"    :
+                                     "bg-slate-700 text-slate-400"
+                  }`}
+                >
+                  {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}`  :
+                   p.saldo < -0.5 ? `− ${fmt(p.saldo)}`  :
+                                    "En paz"}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                <div>
+                  <p>Pagó</p>
+                  <p className="text-white font-medium text-sm">{fmt(p.pagado)}</p>
+                </div>
+                <div>
+                  <p>Le correspondía</p>
+                  <p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Liquidación */}
+          {acreedor && deudor ? (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+              <p className="text-sm text-amber-300 text-center">
+                ⚖️{" "}
+                {nombreSujeto(deudor.id)}{" "}
+                {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
+                {nombreObjeto(acreedor.id)}:{" "}
+                <span className="font-bold">{fmt(acreedor.saldo)}</span>
+              </p>
+            </div>
+          ) : totalCompartido > 0 ? (
+            <p className="text-xs text-slate-500 text-center py-1">✓ Están en paz</p>
+          ) : null}
         </div>
 
-        {/* Balance real */}
-        {acreedor && deudor && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-6">
-            <p className="text-sm text-amber-300">
-              ⚖️ {nombreSujeto(deudor[0])} le {esYo(deudor[0]) ? "debes" : "debe"} a{" "}
-              {nombreObjeto(acreedor[0])}: <span className="font-bold">{fmt(acreedor[1])}</span>
-            </p>
+        {/* Personales */}
+        {totalPersonal > 0 && (
+          <div className="bg-slate-900 rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
+            <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
+            <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
           </div>
         )}
 
-        {/* Formulario */}
-        <div className="bg-slate-900 rounded-xl p-4 mb-6 space-y-3">
-          <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Nuevo gasto</p>
+        {/* ── Formulario ────────────────────────────────────────────────── */}
+        <div className="bg-slate-900 rounded-xl p-4 mb-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">
+              {editandoId ? "Editando gasto" : "Nuevo gasto"}
+            </p>
+            {editandoId && (
+              <button onClick={cancelarEdicion} className="text-slate-500 hover:text-slate-300 transition">
+                <X size={16} />
+              </button>
+            )}
+          </div>
 
-          {/* Privado vs compartido */}
+          {/* Tipo */}
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setVisibilidad("compartido")}
@@ -309,9 +352,13 @@ const gastosFiltrados = useMemo(() => {
               <Users size={13} /> Compartido
             </button>
             <button
-              onClick={() => setVisibilidad("privado")}
+              onClick={() => !editandoAjeno && setVisibilidad("privado")}
+              disabled={editandoAjeno}
+              title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
               className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                visibilidad === "privado" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                editandoAjeno         ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
+                visibilidad==="privado"? "bg-blue-600 text-white" :
+                                         "bg-slate-800 text-slate-400 hover:bg-slate-700"
               }`}
             >
               <Lock size={13} /> Personal
@@ -354,10 +401,10 @@ const gastosFiltrados = useMemo(() => {
             ))}
           </select>
 
-          {/* Quién pagó + cómo se divide — solo si es compartido */}
+          {/* Quién pagó + división — solo si es compartido */}
           {visibilidad === "compartido" && (
-            <div className="space-y-2 pt-1 border-t border-slate-800">
-              <p className="text-xs text-slate-500 pt-2">¿Quién pagó?</p>
+            <div className="space-y-2 pt-2 border-t border-slate-800">
+              <p className="text-xs text-slate-500">¿Quién puso el dinero?</p>
               <div className="grid grid-cols-2 gap-2">
                 {perfiles.map(p => (
                   <button
@@ -367,19 +414,20 @@ const gastosFiltrados = useMemo(() => {
                       pagadoPor === p.id ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                     }`}
                   >
-                    {p.id === userId ? `Tú (${p.nombre})` : p.nombre}
+                    {esYo(p.id) ? `Yo (${p.nombre})` : p.nombre}
                   </button>
                 ))}
               </div>
 
-              <p className="text-xs text-slate-500 pt-1">
-                ¿Cómo se divide? · le corresponde el {pctPagador}% a quien pagó
+              <p className="text-xs text-slate-500">
+                ¿Cómo se divide? — a quien pagó le corresponde el{" "}
+                <span className="text-white font-medium">{pctPagador}%</span>
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { v: 50,  label: "Mitad y mitad" },
-                  { v: 100, label: "Es todo suyo" },
-                  { v: 0,   label: `Es todo de ${otroPerfil ? otroPerfil.nombre : "el otro"}` },
+                  { v: 50,  label: "50 / 50" },
+                  { v: 100, label: "Todo suyo" },
+                  { v: 0,   label: `Todo de ${otroPerfil?.nombre ?? "el otro"}` },
                 ].map(opt => (
                   <button
                     key={opt.v}
@@ -392,8 +440,22 @@ const gastosFiltrados = useMemo(() => {
                   </button>
                 ))}
               </div>
+
+              {/* Preview del saldo que va a generar este gasto */}
+              {valor && Number(valor) > 0 && pagadoPor && (
+                <div className="bg-slate-800 rounded-lg px-3 py-2 text-xs text-slate-400">
+                  {pctPagador === 100
+                    ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
+                    : pctPagador === 0
+                    ? <span>{nombreSujeto(pagadoPor)} adelanta <span className="text-white">{fmt(Number(valor))}</span> que es responsabilidad de {nombreObjeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)}</span>
+                    : <span>{esYo(pagadoPor) ? "Tu pareja" : nombreSujeto(pagadoPor) === "Tú" ? "Tu pareja" : nombreSujeto(perfiles.find(p=>p.id!==pagadoPor)?.id ?? null)} debe <span className="text-white">{fmt(Number(valor) * (100 - pctPagador) / 100)}</span></span>
+                  }
+                </div>
+              )}
             </div>
           )}
+
+          {error && <p className="text-red-400 text-xs">{error}</p>}
 
           <button
             onClick={guardarGasto}
@@ -401,60 +463,25 @@ const gastosFiltrados = useMemo(() => {
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
           >
             <Plus size={16} />
-
-{
-guardando
-? "Guardando..."
-: editandoId
-? "Actualizar gasto"
-: "Agregar gasto"
-}
+            {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}
           </button>
         </div>
 
-        {/* Error */}
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-4">
-            {error}
-          </div>
-        )}
-<div className="grid grid-cols-3 gap-2 mb-4">
+        {/* ── Filtros + Lista ────────────────────────────────────────────── */}
+        <div className="flex gap-2 mb-4">
+          {(["todos", "compartido", "privado"] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFiltro(f)}
+              className={`flex-1 p-2 rounded-lg text-xs font-medium transition ${
+                filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }`}
+            >
+              {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
+            </button>
+          ))}
+        </div>
 
-<button
-onClick={() => setFiltro("todos")}
-className={`p-2 rounded-lg text-xs ${
-filtro==="todos"
-? "bg-blue-600"
-: "bg-slate-800"
-}`}
->
-Todos
-</button>
-
-<button
-onClick={() => setFiltro("compartido")}
-className={`p-2 rounded-lg text-xs ${
-filtro==="compartido"
-? "bg-blue-600"
-: "bg-slate-800"
-}`}
->
-Compartidos
-</button>
-
-<button
-onClick={() => setFiltro("privado")}
-className={`p-2 rounded-lg text-xs ${
-filtro==="privado"
-? "bg-blue-600"
-: "bg-slate-800"
-}`}
->
-Personal
-</button>
-
-</div>
-        {/* Lista */}
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
@@ -469,7 +496,12 @@ Personal
         ) : (
           <div className="space-y-2">
             {gastosFiltrados.map(g => (
-              <div key={g.id} className="bg-slate-900 rounded-xl p-4 flex items-center justify-between group">
+              <div
+                key={g.id}
+                className={`rounded-xl p-4 flex items-center justify-between group transition ${
+                  g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
+                }`}
+              >
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
                   <div className="min-w-0">
@@ -481,33 +513,27 @@ Personal
                       ) : (
                         <span>
                           {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreSujeto(g.pagado_por)}`}
-                          {" "}· {g.porcentaje_pagador ?? 50}/{100 - (g.porcentaje_pagador ?? 50)}
+                          {" · "}{g.porcentaje_pagador ?? 50}/{100 - (g.porcentaje_pagador ?? 50)}
                         </span>
                       )}
                     </p>
                   </div>
                 </div>
-               <div className="flex items-center gap-2 shrink-0">
-
-  <p className="font-bold text-sm">
-    {fmt(g.valor)}
-  </p>
-
-  <button
-    onClick={() => editarGasto(g)}
-    className="text-slate-500 hover:text-blue-400"
-  >
-    <Pencil size={15} />
-  </button>
-
-  <button
-    onClick={() => eliminarGasto(g.id)}
-    className="text-slate-500 hover:text-red-400"
-  >
-    <Trash2 size={15} />
-  </button>
-
-</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
+                  <button
+                    onClick={() => editarGasto(g)}
+                    className="text-slate-600 hover:text-blue-400 transition opacity-0 group-hover:opacity-100"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    onClick={() => eliminarGasto(g.id)}
+                    className="text-slate-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
