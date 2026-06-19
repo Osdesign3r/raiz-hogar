@@ -79,9 +79,9 @@ export default function FamiliaPage() {
                 </div>
                 <button
                   onClick={() => eliminar(m.id)}
-                  className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition shrink-0"
                 >
-                  <Trash2 size={15} />
+                  <Trash2 size={16} />
                 </button>
               </div>
             ))}

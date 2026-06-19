@@ -523,15 +523,15 @@ export default function FinanzasPage() {
                   <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
                   <button
                     onClick={() => editarGasto(g)}
-                    className="text-slate-600 hover:text-blue-400 transition opacity-0 group-hover:opacity-100"
+                    className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition"
                   >
-                    <Pencil size={15} />
+                    <Pencil size={16} />
                   </button>
                   <button
                     onClick={() => eliminarGasto(g.id)}
-                    className="text-slate-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+                    className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition"
                   >
-                    <Trash2 size={15} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>
