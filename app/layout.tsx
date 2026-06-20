@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import SWRegister from "@/components/SWRegister"
+import SplashScreen from "@/components/SplashScreen"
 import "./globals.css"
 import BottomNav from "@/components/BottomNav"
 import ThemeProvider from "@/components/ThemeProvider"
@@ -9,7 +10,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Nuestro Hogar",
+  title: "LAZO",
   manifest: "/manifest.webmanifest",
 
   // Sin esto, "Agregar a inicio" en iOS no corre en standalone y usa una
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Hogar",
+    title: "LAZO",
   },
   icons: {
     icon: [
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ThemeProvider>
           <SWRegister />
+          <SplashScreen />
           {children}
           <BottomNav />
         </ThemeProvider>

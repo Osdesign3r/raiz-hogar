@@ -72,7 +72,34 @@ export default function DocumentosPage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { cargarDatos() }, [cargarDatos])
+  useEffect(() => {
+
+  cargarDatos()
+
+  const channel = supabase
+
+    .channel("documentos")
+
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "documentos"
+      },
+      () => {
+        cargarDatos()
+      }
+    )
+
+    .subscribe()
+
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+
+}, [cargarDatos])
 
   const nombreMiembro = useCallback(
     (id: string | null) => id === null ? "General del hogar" : (miembros.find(m => m.id === id)?.nombre ?? "—"),
@@ -106,7 +133,7 @@ export default function DocumentosPage() {
     setEtiquetas((d.etiquetas ?? []).join(", "))
     setNotas(d.notas ?? "")
     setArchivo(null)
-    window.scrollTo({ top: 0, behavior: "smooth" })
+   
   }
 
   const guardarDocumento = async () => {
@@ -183,15 +210,108 @@ export default function DocumentosPage() {
   // ── Listas derivadas ────────────────────────────────────────────────────
 
   const vencidos = useMemo(
-    () => documentos.filter(d => d.fecha_vencimiento && d.fecha_vencimiento < hoy()),
-    [documentos]
-  )
+
+()=>
+
+
+[...documentos]
+
+.filter(
+
+d=>
+
+d.fecha_vencimiento
+
+&&
+
+d.fecha_vencimiento < hoy()
+
+)
+
+.sort(
+
+(a,b)=>
+
+a.fecha_vencimiento!.localeCompare(
+
+b.fecha_vencimiento!
+
+)
+
+)
+
+
+,[documentos]
+
+)
   const porVencer = useMemo(
-    () => documentos.filter(d =>
-      d.fecha_vencimiento && d.fecha_vencimiento >= hoy() && diasEntre(d.fecha_vencimiento, hoy()) <= 30
-    ),
-    [documentos]
-  )
+
+()=>
+
+
+[...documentos]
+
+.filter(
+
+d=>
+
+d.fecha_vencimiento
+
+&&
+
+d.fecha_vencimiento >= hoy()
+
+&&
+
+diasEntre(
+
+d.fecha_vencimiento,
+
+hoy()
+
+)
+
+<=30
+
+)
+
+.sort(
+
+(a,b)=>
+
+a.fecha_vencimiento!.localeCompare(
+
+b.fecha_vencimiento!
+
+)
+
+)
+
+
+,[documentos]
+
+)
+const idsEspeciales = useMemo(
+
+()=>new Set([
+
+...vencidos.map(
+
+d=>d.id
+
+),
+
+...porVencer.map(
+
+d=>d.id
+
+)
+
+]),
+
+[vencidos,porVencer]
+
+)
 
   const documentosFiltrados = useMemo(() => {
     return documentos.filter(d => {
@@ -201,6 +321,9 @@ export default function DocumentosPage() {
         const enNombre = d.nombre.toLowerCase().includes(q)
         const enEtiquetas = (d.etiquetas ?? []).some(e => e.toLowerCase().includes(q))
         if (!enNombre && !enEtiquetas) return false
+        if(idsEspeciales.has(d.id))
+
+return false
       }
       return true
     })
@@ -242,24 +365,65 @@ export default function DocumentosPage() {
               </span>
             )}
           </p>
+          {d.etiquetas?.length ? (
+
+<div className="flex flex-wrap gap-1 mt-1">
+
+{d.etiquetas.map(tag => (
+
+<span
+
+key={tag}
+
+className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400"
+
+>
+
+#{tag}
+
+</span>
+
+))}
+
+</div>
+
+) : null}
         </div>
       </button>
       <div className="flex items-center gap-2 shrink-0">
         <button onClick={() => verArchivo(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition" title="Ver archivo">
           <ExternalLink size={16} />
         </button>
-        <button
-          onClick={() => editarDocumento(d)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition"
-        >
-          <Pencil size={16} />
-        </button>
-        <button
-          onClick={() => eliminarDocumento(d)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition"
-        >
-          <Trash2 size={15} />
-        </button>
+        {d.created_by === userId && (
+
+<button
+
+onClick={() => editarDocumento(d)}
+
+className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition"
+
+>
+
+<Pencil size={16}/>
+
+</button>
+
+)}
+        {d.created_by === userId && (
+
+<button
+
+onClick={() => eliminarDocumento(d)}
+
+className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition"
+
+>
+
+<Trash2 size={15}/>
+
+</button>
+
+)}
       </div>
     </div>
   )
@@ -375,6 +539,21 @@ export default function DocumentosPage() {
           />
 
           {error && <p className="text-red-400 text-xs">{error}</p>}
+          {editandoId && (
+
+<button
+
+onClick={limpiarFormulario}
+
+className="w-full p-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium transition"
+
+>
+
+Cancelar edición
+
+</button>
+
+)}
 
           <button
             onClick={guardarDocumento}
@@ -441,7 +620,34 @@ export default function DocumentosPage() {
             {documentosFiltrados.length === 0 ? (
               <div className="text-center py-12 text-slate-500">
                 <FileText size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">{busqueda ? "Sin resultados" : "No hay documentos todavía"}</p>
+              <div className="text-center py-12">
+
+<div className="text-4xl mb-3">
+
+📂
+
+</div>
+
+
+<p className="text-base font-medium text-slate-300">
+
+La carpeta está vacía
+
+</p>
+
+
+<p className="text-sm text-slate-500 mt-1">
+
+{busqueda
+
+? "No encontramos documentos con ese criterio"
+
+: "Guarda aquí documentos importantes de la familia"}
+
+</p>
+
+
+</div>
               </div>
             ) : (
               <div className="space-y-2">

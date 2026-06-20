@@ -4,9 +4,9 @@ export default function manifest(): MetadataRoute.Manifest {
 
   return {
 
-    name: "Nuestro Hogar",
+    name: "LAZO",
 
-    short_name: "Hogar",
+    short_name: "LAZO",
 
     description: "Organizador familiar",
 
