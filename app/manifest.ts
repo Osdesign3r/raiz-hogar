@@ -8,7 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
 
     short_name: "LAZO",
 
-    description: "Organizador familiar",
+    description: "Infinitamente conectados",
 
     start_url: "/",
 
