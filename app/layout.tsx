@@ -5,6 +5,8 @@ import SplashScreen from "@/components/SplashScreen"
 import "./globals.css"
 import BottomNav from "@/components/BottomNav"
 import ThemeProvider from "@/components/ThemeProvider"
+import PushNotificationProvider
+from "@/components/PushNotificationProvider"
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] })
@@ -43,6 +45,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <SWRegister />
           <SplashScreen />
+          <PushNotificationProvider/>
+
           {children}
           <BottomNav />
         </ThemeProvider>

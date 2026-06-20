@@ -1,33 +1,44 @@
-
-import {initializeApp}
-
-from "firebase/app"
+import { getMessaging, getToken } from "firebase/messaging"
+import { app } from "./firebaseConfig"
 
 
 
-const firebaseConfig={
+export async function requestNotificationPermission(){
 
 
-apiKey:"",
+const permission =
 
-authDomain:"",
-
-projectId:"",
+await Notification.requestPermission()
 
 
-messagingSenderId:"",
 
-appId:""
+if(permission!=="granted")
+return
 
+
+
+const messaging = getMessaging(app)
+
+
+
+const token = await getToken(
+
+messaging,
+
+{
+
+vapidKey:
+
+process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
 
 }
 
-
-export const app=
-
-initializeApp(
-
-firebaseConfig
-
 )
 
+
+
+console.log(token)
+
+
+
+}
