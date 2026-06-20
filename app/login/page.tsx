@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
+import Image from "next/image"
 
 function LoginContent() {
   const [loading, setLoading] = useState(false)
@@ -23,16 +24,35 @@ function LoginContent() {
 
   return (
     <main className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+
+  <div className="absolute inset-0 opacity-20 pointer-events-none">
+
+    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-72 bg-blue-500 rounded-full blur-3xl"/>
+
+  </div>
       <div className="w-full max-w-sm">
 
-        {/* Logo / Brand */}
-        <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">🌱</span>
-          </div>
-          <h1 className="text-2xl font-bold text-white">LAZO</h1>
-          <p className="text-slate-400 text-sm mt-1">Tu hogar, en orden</p>
-        </div>
+       {/* Logo / Brand */}
+<div className="text-center mb-10">
+
+  <Image
+    src="/icon-512.png"
+    alt="LAZO"
+    width={72}
+    height={72}
+    priority
+    className="mx-auto rounded-3xl mb-4 shadow-lg shadow-black/30"
+  />
+
+  <h1 className="text-3xl font-bold tracking-wide text-white">
+    LAZO
+  </h1>
+
+  <p className="text-sm text-slate-500 mt-1">
+    Infinitamente conectados
+  </p>
+
+</div>
 
         {/* Error */}
         {hasError && (
@@ -57,12 +77,20 @@ function LoginContent() {
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
           )}
-          {loading ? "Conectando..." : "Continuar con Google"}
+          {loading ? "Conectando..." : "Entrar con Google"}
         </button>
 
-        <p className="text-center text-xs text-slate-500 mt-8">
-          Solo tú y tu pareja tienen acceso.
-        </p>
+       <div className="text-center mt-8">
+
+  <p className="text-xs text-slate-500">
+    Solo TÙ y YO tenemos acceso a este hogar
+  </p>
+
+  <p className="text-[11px] text-slate-600 mt-2">
+    Google solo se usa para identificarlos de forma segura
+  </p>
+
+</div>
 
       </div>
     </main>
