@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase"
 import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad } from "@/lib/types"
 import {
   Trash2, Plus, TrendingUp, TrendingDown, Lock, Users, Pencil, X,
-  BarChart3, ListOrdered, Flame, CalendarDays,
+  ChevronDown, Flame, CalendarDays,
 } from "lucide-react"
 
 const hoy = () => new Date().toISOString().split("T")[0]
@@ -17,7 +17,7 @@ const ultimoDiaMes = (mes: string) => {
 
 const mesAnteriorDe = (mes: string) => {
   const [año, m] = mes.split("-").map(Number)
-  const d = new Date(año, m - 2, 1) // m es 1-indexado; m-2 da el mes previo en Date (0-indexado)
+  const d = new Date(año, m - 2, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 }
 
@@ -26,41 +26,27 @@ const nombreMes = (mes: string) => {
   return new Date(año, m - 1, 1).toLocaleDateString("es-CO", { month: "long" })
 }
 
-const fmt = (n: number) =>
-  `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
+const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
 
-// ─── Tipos auxiliares ────────────────────────────────────────────────────────
-
-type ResumenPersona = Perfil & {
-  pagado:          number
-  responsabilidad: number
-  saldo:           number
-}
-
-type CategoriaComparada = {
-  id: string
-  nombre: string
-  emoji: string
-  actual: number
-  anterior: number
-}
-
-// ─── Componente ─────────────────────────────────────────────────────────────
+type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
+type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
 
 export default function FinanzasPage() {
-  const [gastos,             setGastos]             = useState<Gasto[]>([])
-  const [gastosMesAnterior,  setGastosMesAnterior]  = useState<Gasto[]>([])
-  const [categorias,         setCategorias]         = useState<Categoria[]>([])
-  const [perfiles,           setPerfiles]           = useState<Perfil[]>([])
-  const [userId,             setUserId]             = useState<string | null>(null)
-  const [loading,            setLoading]            = useState(true)
-  const [guardando,          setGuardando]          = useState(false)
-  const [error,              setError]              = useState<string | null>(null)
+  const [gastos,            setGastos]            = useState<Gasto[]>([])
+  const [gastosMesAnterior, setGastosMesAnterior]  = useState<Gasto[]>([])
+  const [categorias,        setCategorias]         = useState<Categoria[]>([])
+  const [perfiles,          setPerfiles]           = useState<Perfil[]>([])
+  const [userId,            setUserId]             = useState<string | null>(null)
+  const [loading,           setLoading]            = useState(true)
+  const [guardando,         setGuardando]          = useState(false)
+  const [error,             setError]              = useState<string | null>(null)
 
-  const [vista,         setVista]         = useState<"movimientos" | "analisis">("movimientos")
-  const [editandoId,    setEditandoId]    = useState<string | null>(null)
-  const [editandoAjeno, setEditandoAjeno] = useState(false)
-  const [filtro,        setFiltro]        = useState<"todos" | "compartido" | "privado">("todos")
+  const [modalAbierto,    setModalAbierto]    = useState(false)
+  const [hojaVisible,     setHojaVisible]     = useState(false)
+  const [mostrarDesglose, setMostrarDesglose] = useState(false)
+  const [editandoId,      setEditandoId]      = useState<string | null>(null)
+  const [editandoAjeno,   setEditandoAjeno]   = useState(false)
+  const [filtro,          setFiltro]          = useState<"todos" | "compartido" | "privado">("todos")
 
   const [concepto,    setConcepto]    = useState("")
   const [valor,       setValor]       = useState("")
@@ -77,11 +63,11 @@ export default function FinanzasPage() {
     setLoading(true)
     setError(null)
 
-    const fechaInicio = `${mesActivo}-01`
-    const fechaFin    = ultimoDiaMes(mesActivo)
-    const mesAnterior      = mesAnteriorDe(mesActivo)
-    const fechaInicioAnt   = `${mesAnterior}-01`
-    const fechaFinAnt      = ultimoDiaMes(mesAnterior)
+    const fechaInicio    = `${mesActivo}-01`
+    const fechaFin       = ultimoDiaMes(mesActivo)
+    const mesAnterior    = mesAnteriorDe(mesActivo)
+    const fechaInicioAnt = `${mesAnterior}-01`
+    const fechaFinAnt    = ultimoDiaMes(mesAnterior)
 
     const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }, { data: gastsAntData }] =
       await Promise.all([
@@ -94,7 +80,6 @@ export default function FinanzasPage() {
           .gte("fecha", fechaInicio)
           .lte("fecha", fechaFin)
           .order("fecha", { ascending: false }),
-        // Solo lo necesario para comparar: gasto compartido del mes anterior
         supabase
           .from("gastos")
           .select("*, categorias(id, nombre, emoji)")
@@ -117,31 +102,30 @@ export default function FinanzasPage() {
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
-  // Default del pagador a "yo" — separado de cargarDatos para no recargar
-  // la página entera cada vez que se cambia el selector de "¿Quién pagó?"
+  useEffect(() => {
+    if (modalAbierto) {
+      const t = setTimeout(() => setHojaVisible(true), 10)
+      return () => clearTimeout(t)
+    }
+    setHojaVisible(false)
+  }, [modalAbierto])
+
   useEffect(() => {
     if (!pagadoPor && userId) setPagadoPor(userId)
   }, [userId, pagadoPor])
 
-  // ── Helpers de nombre ─────────────────────────────────────────────────────
-
-  const otroPerfil = useMemo(
-    () => perfiles.find(p => p.id !== userId) ?? null,
-    [perfiles, userId]
-  )
+  const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
   const nombreSujeto = useCallback(
-    (id: string | null) =>
-      esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
   const nombreObjeto = useCallback(
-    (id: string | null) =>
-      esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
 
-  // ── Edición ───────────────────────────────────────────────────────────────
+  // ── Edición / modal ──────────────────────────────────────────────────────
 
   const cancelarEdicion = useCallback(() => {
     setEditandoId(null)
@@ -161,8 +145,13 @@ export default function FinanzasPage() {
   editandoIdRef.current = editandoId
 
   useEffect(() => {
-    if (editandoIdRef.current) cancelarRef.current()
+    if (editandoIdRef.current) { cancelarRef.current(); setModalAbierto(false) }
   }, [mesActivo])
+
+  const abrirNuevo = () => {
+    cancelarEdicion()
+    setModalAbierto(true)
+  }
 
   const editarGasto = (g: Gasto) => {
     setEditandoId(g.id)
@@ -174,8 +163,12 @@ export default function FinanzasPage() {
     setVisibilidad(g.visibilidad)
     setPagadoPor(g.pagado_por ?? "")
     setPctPagador(g.porcentaje_pagador ?? 50)
-    setVista("movimientos")
-    window.scrollTo({ top: 0, behavior: "smooth" })
+    setModalAbierto(true)
+  }
+
+  const cerrarModal = () => {
+    setModalAbierto(false)
+    cancelarEdicion()
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
@@ -204,6 +197,7 @@ export default function FinanzasPage() {
     if (res.error) {
       setError("No se pudo guardar el gasto.")
     } else {
+      setModalAbierto(false)
       cancelarEdicion()
       await cargarDatos()
     }
@@ -215,11 +209,11 @@ export default function FinanzasPage() {
     const { error: err } = await supabase.from("gastos").delete().eq("id", id)
     if (!err) {
       setGastos(prev => prev.filter(g => g.id !== id))
-      if (editandoId === id) cancelarEdicion()
+      if (editandoId === id) cerrarModal()
     }
   }
 
-  // ── Cálculos: movimientos ───────────────────────────────────────────────
+  // ── Cálculos: balance ────────────────────────────────────────────────────
 
   const compartidos = useMemo(() => gastos.filter(g => g.visibilidad === "compartido"), [gastos])
   const personales  = useMemo(() => gastos.filter(g => g.visibilidad === "privado"),    [gastos])
@@ -292,17 +286,10 @@ export default function FinanzasPage() {
       .sort((x, y) => y.actual - x.actual)
   }, [compartidos, gastosMesAnterior])
 
-  // Insights: solo categorías con base real para comparar (evita "infinito%"
-  // en una categoría que recién empezó a usarse), y solo cambios que de
-  // verdad importan — no "subió 22% en $3.000".
   const insights = useMemo(() => {
     return categoriasComparadas
       .filter(c => c.anterior >= 10000)
-      .map(c => ({
-        ...c,
-        delta:    c.actual - c.anterior,
-        deltaPct: Math.round(((c.actual - c.anterior) / c.anterior) * 100),
-      }))
+      .map(c => ({ ...c, delta: c.actual - c.anterior, deltaPct: Math.round(((c.actual - c.anterior) / c.anterior) * 100) }))
       .filter(c => Math.abs(c.deltaPct) >= 20 && Math.abs(c.delta) >= 15000)
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
       .slice(0, 3)
@@ -349,36 +336,30 @@ export default function FinanzasPage() {
           </div>
         </div>
 
-        {/* Pestañas */}
-        <div className="flex gap-2 mb-4 bg-slate-900 rounded-lg p-1">
-          <button
-            onClick={() => setVista("movimientos")}
-            className={`flex-1 p-2 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-              vista === "movimientos" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <ListOrdered size={13} /> Movimientos
-          </button>
-          <button
-            onClick={() => setVista("analisis")}
-            className={`flex-1 p-2 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-              vista === "analisis" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <BarChart3 size={13} /> Análisis
-          </button>
-        </div>
-
-        {vista === "movimientos" ? (
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-2xl h-24 animate-pulse" />)}
+          </div>
+        ) : (
           <>
-            {/* ── Resumen Splitwise-style ─────────────────────────────── */}
+            {/* ── Lo primero que se ve: el balance ──────────────────────── */}
             <div className="bg-slate-900 rounded-2xl p-4 mb-3 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-slate-400 font-medium uppercase tracking-wide flex items-center gap-1">
-                  <Users size={11} /> Gasto compartido
+                  <Users size={11} /> Gasto compartido de {nombreMes(mesActivo)}
                 </p>
-                <p className="text-sm font-bold">{fmt(totalCompartido)}</p>
+                {deltaTotalPct !== null && (
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
+                    deltaTotalPct > 0 ? "bg-red-500/15 text-red-400" :
+                    deltaTotalPct < 0 ? "bg-green-500/15 text-green-400" :
+                                        "bg-slate-700 text-slate-400"
+                  }`}>
+                    {deltaTotalPct > 0 ? <TrendingUp size={11} /> : deltaTotalPct < 0 ? <TrendingDown size={11} /> : null}
+                    {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
+                  </span>
+                )}
               </div>
+              <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
 
               {resumenPorPersona.map(p => (
                 <div key={p.id} className="bg-slate-800 rounded-xl p-3">
@@ -397,14 +378,8 @@ export default function FinanzasPage() {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                    <div>
-                      <p>Pagó</p>
-                      <p className="text-white font-medium text-sm">{fmt(p.pagado)}</p>
-                    </div>
-                    <div>
-                      <p>Le correspondía</p>
-                      <p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p>
-                    </div>
+                    <div><p>Pagó</p><p className="text-white font-medium text-sm">{fmt(p.pagado)}</p></div>
+                    <div><p>Le correspondía</p><p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p></div>
                   </div>
                 </div>
               ))}
@@ -412,11 +387,8 @@ export default function FinanzasPage() {
               {acreedor && deudor ? (
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
                   <p className="text-sm text-amber-300 text-center">
-                    ⚖️{" "}
-                    {nombreSujeto(deudor.id)}{" "}
-                    {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
-                    {nombreObjeto(acreedor.id)}:{" "}
-                    <span className="font-bold">{fmt(acreedor.saldo)}</span>
+                    ⚖️ {nombreSujeto(deudor.id)} {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
+                    {nombreObjeto(acreedor.id)}: <span className="font-bold">{fmt(acreedor.saldo)}</span>
                   </p>
                 </div>
               ) : totalCompartido > 0 ? (
@@ -424,30 +396,200 @@ export default function FinanzasPage() {
               ) : null}
             </div>
 
+            {/* ── Stats rápidas ──────────────────────────────────────────── */}
+            {totalCompartido > 0 && (
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
+                  <p className="font-bold text-sm">{fmt(promedioDiario)}</p>
+                </div>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
+                  <p className="font-bold text-sm truncate">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
+                  {gastoMasGrande && <p className="text-[11px] text-slate-500 truncate">{gastoMasGrande.concepto}</p>}
+                </div>
+              </div>
+            )}
+
             {totalPersonal > 0 && (
-              <div className="bg-slate-900 rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
+              <div className="bg-slate-900 rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
                 <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
                 <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
               </div>
             )}
 
-            {/* ── Formulario ────────────────────────────────────────────── */}
-            <div className="bg-slate-900 rounded-xl p-4 mb-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">
-                  {editandoId ? "Editando gasto" : "Nuevo gasto"}
-                </p>
-                {editandoId && (
-                  <button onClick={cancelarEdicion} className="text-slate-500 hover:text-slate-300 transition w-8 h-8 flex items-center justify-center">
-                    <X size={16} />
-                  </button>
+            {/* ── Insights — lo que cambió, sin tener que ir a buscarlo ──── */}
+            {insights.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {insights.map(i => (
+                  <div
+                    key={i.id}
+                    className={`rounded-xl p-3 flex items-start gap-2.5 ${
+                      i.delta > 0 ? "bg-red-500/10 border border-red-500/20" : "bg-green-500/10 border border-green-500/20"
+                    }`}
+                  >
+                    <span className="text-lg shrink-0">{i.emoji}</span>
+                    <p className="text-sm text-slate-300 leading-snug">
+                      Gastaste{" "}
+                      <span className={`font-semibold ${i.delta > 0 ? "text-red-400" : "text-green-400"}`}>
+                        {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
+                      </span>{" "}
+                      en {i.nombre} este mes — {fmt(i.actual)} vs {fmt(i.anterior)} en {nombreMes(mesAnteriorDe(mesActivo))}.
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Desglose por categoría — colapsado por defecto ─────────── */}
+            {categoriasComparadas.length > 0 && (
+              <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
+                <button
+                  onClick={() => setMostrarDesglose(v => !v)}
+                  className="w-full flex items-center justify-between p-4"
+                >
+                  <p className="text-xs text-slate-400 uppercase tracking-wide">Desglose por categoría</p>
+                  <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
+                </button>
+                {mostrarDesglose && (
+                  <div className="px-4 pb-4 space-y-3">
+                    <p className="text-[11px] text-slate-500 flex items-center gap-1 -mt-1">
+                      <span className="w-2 h-0.5 bg-white/60 inline-block" /> mes anterior
+                    </p>
+                    {categoriasComparadas.map(c => {
+                      const pctActual   = (c.actual   / maxBarra) * 100
+                      const pctAnterior = (c.anterior / maxBarra) * 100
+                      return (
+                        <div key={c.id}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-300">{c.emoji} {c.nombre}</span>
+                            <span className="font-medium">{fmt(c.actual)}</span>
+                          </div>
+                          <div className="relative h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 bg-blue-600 rounded-full transition-all" style={{ width: `${pctActual}%` }} />
+                            {c.anterior > 0 && (
+                              <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${Math.min(pctAnterior, 99.5)}%` }} />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
+              </div>
+            )}
+
+            {/* ── Filtros + lista de movimientos ─────────────────────────── */}
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Movimientos</p>
+              <div className="flex gap-1.5">
+                {(["todos", "compartido", "privado"] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setFiltro(f)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
+                      filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                    }`}
+                  >
+                    {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3">{error}</div>
+            )}
+
+            {gastosFiltrados.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <p className="text-3xl mb-2">💸</p>
+                <p className="text-sm">No hay gastos este mes</p>
+              </div>
+            ) : (
+              <div className="space-y-2 pb-24">
+                {gastosFiltrados.map(g => (
+                  <div
+                    key={g.id}
+                    className={`rounded-xl p-4 flex items-center justify-between group transition ${
+                      g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{g.concepto}</p>
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
+                          {g.fecha} ·{" "}
+                          {g.visibilidad === "privado" ? (
+                            <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
+                          ) : (
+                            <span>
+                              {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreSujeto(g.pagado_por)}`}
+                              {" · "}{g.porcentaje_pagador ?? 50}/{100 - (g.porcentaje_pagador ?? 50)}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
+                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition">
+                        <Pencil size={16} />
+                      </button>
+                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Botón flotante ───────────────────────────────────────────── */}
+       <button
+  onClick={abrirNuevo}
+  className="
+  fixed
+  bottom-[88px]
+  right-4
+  w-14 h-14
+  rounded-full
+  bg-blue-600
+  hover:bg-blue-500
+  active:scale-95
+  shadow-lg
+  shadow-blue-600/30
+  flex items-center justify-center
+  transition
+  z-[60]
+"
+        >
+          <Plus size={26} className="text-white" />
+        </button>
+
+        {/* ── Bottom sheet: formulario ─────────────────────────────────── */}
+        {modalAbierto && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
+            <div
+              className={`relative w-full max-w-md bg-slate-900 rounded-t-2xl p-4 pb-6 max-h-[88vh] overflow-y-auto space-y-3 transition-transform duration-300 ease-out ${
+                hojaVisible ? "translate-y-0" : "translate-y-full"
+              }`}
+            >
+              <div className="flex items-center justify-between sticky top-0 bg-slate-900 pb-1">
+                <p className="text-sm font-semibold">{editandoId ? "Editando gasto" : "Nuevo gasto"}</p>
+                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition">
+                  <X size={18} />
+                </button>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setVisibilidad("compartido")}
-                  className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                  className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
                     visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
                 >
@@ -457,7 +599,7 @@ export default function FinanzasPage() {
                   onClick={() => !editandoAjeno && setVisibilidad("privado")}
                   disabled={editandoAjeno}
                   title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
-                  className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                  className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
                     editandoAjeno          ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
                     visibilidad==="privado"? "bg-blue-600 text-white" :
                                              "bg-slate-800 text-slate-400 hover:bg-slate-700"
@@ -472,6 +614,7 @@ export default function FinanzasPage() {
                 onChange={e => setConcepto(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && guardarGasto()}
                 placeholder="¿En qué gastaste?"
+                autoFocus
                 className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
               />
 
@@ -555,8 +698,6 @@ export default function FinanzasPage() {
                 </div>
               )}
 
-              {error && <p className="text-red-400 text-xs">{error}</p>}
-
               <button
                 onClick={guardarGasto}
                 disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
@@ -566,186 +707,7 @@ export default function FinanzasPage() {
                 {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}
               </button>
             </div>
-
-            {/* ── Filtros + Lista ────────────────────────────────────────── */}
-            <div className="flex gap-2 mb-4">
-              {(["todos", "compartido", "privado"] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFiltro(f)}
-                  className={`flex-1 p-2 rounded-lg text-xs font-medium transition ${
-                    filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                  }`}
-                >
-                  {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
-                </button>
-              ))}
-            </div>
-
-            {loading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-xl h-16 animate-pulse" />)}
-              </div>
-            ) : gastosFiltrados.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <p className="text-3xl mb-2">💸</p>
-                <p className="text-sm">No hay gastos este mes</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {gastosFiltrados.map(g => (
-                  <div
-                    key={g.id}
-                    className={`rounded-xl p-4 flex items-center justify-between group transition ${
-                      g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">{g.concepto}</p>
-                        <p className="text-xs text-slate-400 flex items-center gap-1">
-                          {g.fecha} ·{" "}
-                          {g.visibilidad === "privado" ? (
-                            <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
-                          ) : (
-                            <span>
-                              {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreSujeto(g.pagado_por)}`}
-                              {" · "}{g.porcentaje_pagador ?? 50}/{100 - (g.porcentaje_pagador ?? 50)}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
-                      <button
-                        onClick={() => editarGasto(g)}
-                        className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        onClick={() => eliminarGasto(g.id)}
-                        className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          /* ── ANÁLISIS ──────────────────────────────────────────────────── */
-          loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-xl h-20 animate-pulse" />)}
-            </div>
-          ) : compartidos.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              <BarChart3 size={32} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Todavía no hay gasto compartido este mes para analizar</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-
-              {/* Total vs mes anterior */}
-              <div className="bg-slate-900 rounded-2xl p-4">
-                <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-                  Gasto compartido de {nombreMes(mesActivo)}
-                </p>
-                <div className="flex items-end justify-between">
-                  <p className="text-3xl font-bold">{fmt(totalCompartido)}</p>
-                  {deltaTotalPct !== null && (
-                    <span className={`text-xs font-semibold px-2 py-1 rounded-full flex items-center gap-1 ${
-                      deltaTotalPct > 0 ? "bg-red-500/15 text-red-400" :
-                      deltaTotalPct < 0 ? "bg-green-500/15 text-green-400" :
-                                          "bg-slate-700 text-slate-400"
-                    }`}>
-                      {deltaTotalPct > 0 ? <TrendingUp size={12} /> : deltaTotalPct < 0 ? <TrendingDown size={12} /> : null}
-                      {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}% vs ${nombreMes(mesAnteriorDe(mesActivo))}`}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Stats rápidas */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-900 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
-                  <p className="font-bold text-sm">{fmt(promedioDiario)}</p>
-                </div>
-                <div className="bg-slate-900 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
-                  <p className="font-bold text-sm truncate">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
-                  {gastoMasGrande && <p className="text-[11px] text-slate-500 truncate">{gastoMasGrande.concepto}</p>}
-                </div>
-              </div>
-
-              {/* Insights automáticos */}
-              {insights.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-400 uppercase tracking-wide pl-1">Lo que cambió</p>
-                  {insights.map(i => (
-                    <div
-                      key={i.id}
-                      className={`rounded-xl p-3 flex items-start gap-2.5 ${
-                        i.delta > 0 ? "bg-red-500/10 border border-red-500/20" : "bg-green-500/10 border border-green-500/20"
-                      }`}
-                    >
-                      <span className="text-lg shrink-0">{i.emoji}</span>
-                      <p className="text-sm text-slate-300 leading-snug">
-                        Gastaste{" "}
-                        <span className={`font-semibold ${i.delta > 0 ? "text-red-400" : "text-green-400"}`}>
-                          {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
-                        </span>{" "}
-                        en {i.nombre} este mes — {fmt(i.actual)} vs {fmt(i.anterior)} en {nombreMes(mesAnteriorDe(mesActivo))}.
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Desglose por categoría con comparación visual */}
-              <div className="bg-slate-900 rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-slate-400 uppercase tracking-wide">Por categoría</p>
-                  <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                    <span className="w-2 h-0.5 bg-white/60 inline-block" /> mes anterior
-                  </p>
-                </div>
-                <div className="space-y-3">
-                  {categoriasComparadas.map(c => {
-                    const pctActual   = (c.actual   / maxBarra) * 100
-                    const pctAnterior = (c.anterior / maxBarra) * 100
-                    return (
-                      <div key={c.id}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-slate-300">{c.emoji} {c.nombre}</span>
-                          <span className="font-medium">{fmt(c.actual)}</span>
-                        </div>
-                        <div className="relative h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className="absolute inset-y-0 left-0 bg-blue-600 rounded-full transition-all"
-                            style={{ width: `${pctActual}%` }}
-                          />
-                          {c.anterior > 0 && (
-                            <div
-                              className="absolute inset-y-0 w-0.5 bg-white/70"
-                              style={{ left: `${Math.min(pctAnterior, 99.5)}%` }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-            </div>
-          )
+          </div>
         )}
 
       </div>
