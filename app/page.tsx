@@ -4,7 +4,9 @@ import { useEffect, useState } from "react"
 
 import { supabase } from "@/lib/supabase"
 import Link from "next/link"
-import { Wallet, Calendar, FileText, Settings, AlertTriangle, Check } from "lucide-react"
+import { Wallet, Calendar, FileText, Settings, AlertTriangle, Check, Bell } from "lucide-react"
+import { createNotification } from "@/lib/notifications"
+import NotificationBell from "@/components/NotificationBell"
 
 type PersonaTotal = { id: string; nombre: string; total: number }
 type EventoDash = { id: string; titulo: string; fecha: string; hora: string | null; tipo: string; asignado_a: string | null }
@@ -67,13 +69,16 @@ const formatHora = (h: string | null) => {
 export default function Home() {
   const [data, setData] = useState<DashData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [notifications,setNotifications]=useState<any[]>([])
+const [showNotifications,setShowNotifications]=useState(false)
 
   useEffect(() => {
     const cargar = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      const [perfilRes, perfilesHogarRes, gastosRes, atrasadosRes, proximosRes] = await Promise.all([
+      const [perfilRes, perfilesHogarRes, gastosRes, atrasadosRes, proximosRes, 
+] = await Promise.all([
         supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
         supabase.from("perfiles").select("id, nombre"),
         supabase.from("gastos").select("valor, visibilidad, pagado_por, porcentaje_pagador")
@@ -86,6 +91,7 @@ export default function Home() {
           .gte("fecha", fechaHoy)
           .order("fecha", { ascending: true }).limit(4),
       ])
+      
 
       const gastos   = gastosRes.data ?? []
       const personas = perfilesHogarRes.data ?? []
@@ -131,6 +137,7 @@ export default function Home() {
         atrasados: atrasadosRes.data ?? [],
         proximos: (proximosRes.data ?? []).filter(e => !(e.tipo === "tarea" && e.completado)),
       })
+
       setLoading(false)
     }
 
@@ -144,7 +151,10 @@ export default function Home() {
     if (id === data?.userId) return "Tú"
     return nombrePorId(id)
   }
-
+const unreadCount =
+notifications.filter(
+n=>!n.read
+).length
   const marcarHecho = async (id: string) => {
     await supabase.from("eventos").update({ completado: true, completado_at: new Date().toISOString() }).eq("id", id)
     setData(prev => prev ? { ...prev, atrasados: prev.atrasados.filter(e => e.id !== id) } : prev)
@@ -155,14 +165,162 @@ export default function Home() {
       <div className="max-w-md mx-auto">
 
         {/* Header */}
-        <div className="mb-5 mt-2">
-          <p className="text-xs uppercase tracking-widest text-muted mb-1 capitalize">{fechaLabel}</p>
-          {loading ? (
-            <div className="h-8 w-40 rounded-lg bg-[var(--surface)] animate-pulse" />
-          ) : (
-            <h1 className="text-2xl font-semibold">Hola, {data?.nombre} 👋</h1>
-          )}
-        </div>
+      <div className="flex justify-between items-start mb-5 mt-2">
+
+<div>
+
+<p className="text-xs uppercase tracking-widest text-muted mb-1 capitalize">
+{fechaLabel}
+</p>
+
+<h1 className="text-2xl font-semibold">
+Hola, {data?.nombre} 👋
+</h1>
+
+</div>
+
+
+
+<button
+
+onClick={()=>
+setShowNotifications(
+!showNotifications
+)
+}
+
+className="
+relative
+w-11
+h-11
+rounded-xl
+surface
+border-subtle
+flex
+items-center
+justify-center
+"
+
+>
+
+<Bell size={18}/>
+
+
+{unreadCount>0 && (
+
+<span
+className="
+absolute
+-top-1
+-right-1
+bg-red-500
+text-white
+text-[10px]
+w-5
+h-5
+rounded-full
+flex
+items-center
+justify-center
+"
+>
+
+{unreadCount}
+
+</span>
+
+)}
+
+</button>
+
+
+</div>
+
+{
+showNotifications && (
+
+
+<div
+className="
+surface
+border-subtle
+rounded-2xl
+p-4
+mb-4
+space-y-3
+"
+>
+
+
+<p className="text-sm font-semibold">
+Notificaciones
+</p>
+
+
+
+{
+notifications.length===0 && (
+
+<p className="text-xs text-muted">
+
+No hay notificaciones
+
+</p>
+
+)
+}
+
+
+
+
+{
+notifications.map(n=>(
+
+
+<div
+key={n.id}
+className="
+border-b
+border-white/5
+pb-2
+"
+>
+
+
+<p className="text-sm">
+
+{n.title}
+
+</p>
+
+
+
+<p
+className="
+text-xs
+text-muted
+"
+>
+
+{n.message}
+
+</p>
+
+
+</div>
+
+
+))
+}
+
+
+
+</div>
+
+
+)
+}
+
 
         {/* Hero card — gasto del mes */}
         <div className="accent-gradient rounded-2xl p-5 mb-3 relative overflow-hidden">

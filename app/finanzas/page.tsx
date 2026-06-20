@@ -7,6 +7,7 @@ import {
   Trash2, Plus, TrendingUp, TrendingDown, Lock, Users, Pencil, X,
   ChevronDown, Flame, CalendarDays,
 } from "lucide-react"
+import { createNotification } from "@/lib/notifications"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -121,7 +122,7 @@ export default function FinanzasPage() {
     [perfiles, esYo]
   )
   const nombreObjeto = useCallback(
-    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => esYo(id) ? "tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
 
@@ -190,10 +191,49 @@ export default function FinanzasPage() {
       notas:               null,
     }
 
-    const res = editandoId
-      ? await supabase.from("gastos").update(payload).eq("id", editandoId)
-      : await supabase.from("gastos").insert(payload)
+   const esNuevo = !editandoId
 
+
+const res = editandoId
+  ? await supabase
+      .from("gastos")
+      .update(payload)
+      .eq("id", editandoId)
+
+  : await supabase
+      .from("gastos")
+      .insert(payload)
+
+      
+if (
+
+esNuevo &&
+visibilidad==="compartido" &&
+otroPerfil
+
+){
+
+await createNotification(
+
+otroPerfil.id,
+
+"gasto",
+
+"Nuevo gasto",
+
+`${nombreSujeto(userId)} agregó ${fmt(Number(valor))}`,
+
+{
+
+concepto,
+
+valor:Number(valor)
+
+}
+
+)
+
+}
     if (res.error) {
       setError("No se pudo guardar el gasto.")
     } else {
@@ -549,33 +589,33 @@ export default function FinanzasPage() {
         )}
 
         {/* ── Botón flotante ───────────────────────────────────────────── */}
-       <button
+{!modalAbierto && (
+<button
   onClick={abrirNuevo}
   className="
-  fixed
-  bottom-[88px]
-  right-4
-  w-14 h-14
-  rounded-full
-  bg-blue-600
-  hover:bg-blue-500
-  active:scale-95
-  shadow-lg
-  shadow-blue-600/30
-  flex items-center justify-center
-  transition
-  z-[60]
-"
-        >
-          <Plus size={26} className="text-white" />
-        </button>
-
+    fixed
+    bottom-[88px]
+    right-4
+    w-14 h-14
+    rounded-full
+    bg-blue-600
+    shadow-lg
+    flex items-center justify-center
+    z-40
+  "
+>
+  <Plus size={26}/>
+</button>
+)}
         {/* ── Bottom sheet: formulario ─────────────────────────────────── */}
         {modalAbierto && (
           <div className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
             <div
-              className={`relative w-full max-w-md bg-slate-900 rounded-t-2xl p-4 pb-6 max-h-[88vh] overflow-y-auto space-y-3 transition-transform duration-300 ease-out ${
+              className={`relative w-full 
+                max-w-md bg-slate-900 rounded-t-3xl 
+                p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 
+                transition-transform duration-300 ease-out ${
                 hojaVisible ? "translate-y-0" : "translate-y-full"
               }`}
             >
@@ -615,6 +655,7 @@ export default function FinanzasPage() {
                 onKeyDown={e => e.key === "Enter" && guardarGasto()}
                 placeholder="¿En qué gastaste?"
                 autoFocus
+                
                 className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
               />
 
