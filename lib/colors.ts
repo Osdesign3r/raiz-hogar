@@ -13,7 +13,7 @@ export const ACCENT_COLORS: AccentColor[] = [
   { id: 'emerald',   name: 'Esmeralda', from: '#10B981', to: '#34D399', value: '#10B981' },
   { id: 'rose',      name: 'Rosa',      from: '#EC4899', to: '#F472B6', value: '#EC4899' },
   { id: 'amber',     name: 'Ámbar',     from: '#F59E0B', to: '#FCD34D', value: '#F59E0B' },
-  { id: 'cyan',      name: 'Cian',      from: '#06B6D4', to: '#22D3EE', value: '#06B6D4' },
+  { id: 'cyan',      name: 'Azul',      from: '#061bd4', to: '#22D3EE', value: '#06B6D4' },
 ]
 
 export const DEFAULT_ACCENT = ACCENT_COLORS[0]
