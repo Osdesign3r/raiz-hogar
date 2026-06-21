@@ -189,14 +189,14 @@ export default function CalendarioPage() {
     <div
       key={e.id}
       className={`rounded-xl p-4 flex items-center justify-between gap-2 group ${
-        destacarAtrasado ? "bg-red-500/10 border border-red-500/30" : "bg-slate-900"
+        destacarAtrasado ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"
       }`}
     >
       <div className="flex items-center gap-3 min-w-0 flex-1">
         {e.tipo === "tarea" ? (
           <button onClick={() => marcarCompletado(e)} className="shrink-0">
             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition ${
-              e.completado ? "bg-green-500 border-green-500" : "border-slate-600 hover:border-slate-400"
+              e.completado ? "bg-green-500 border-green-500" : "border-white/15 hover:border-white/30"
             }`}>
               {e.completado && <Check size={12} className="text-white" />}
             </div>
@@ -205,13 +205,13 @@ export default function CalendarioPage() {
           <div className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[e.color] ?? "bg-slate-500"}`} />
         )}
         <div className="min-w-0">
-          <p className={`font-medium text-sm truncate ${e.completado ? "line-through text-slate-500" : ""}`}>
+          <p className={`font-medium text-sm truncate ${e.completado ? "line-through text-muted" : ""}`}>
             {e.titulo}
           </p>
           {e.descripcion && (
-            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{e.descripcion}</p>
+            <p className="text-xs text-muted mt-1 line-clamp-2">{e.descripcion}</p>
           )}
-          <p className="text-xs text-slate-400 flex items-center gap-2 mt-1">
+          <p className="text-xs text-muted flex items-center gap-2 mt-1">
             {e.hora && (<><span>🕒</span><span>{e.hora.slice(0, 5)}</span></>)}
             <span>👤</span>
             <span>{nombreAsignado(e.asignado_a)}</span>
@@ -224,13 +224,13 @@ export default function CalendarioPage() {
       <div className="flex gap-1 shrink-0">
         <button
           onClick={() => editarEvento(e)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-green-400 hover:bg-slate-800 active:bg-slate-700 transition"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition"
         >
           <Pencil size={16} />
         </button>
         <button
           onClick={() => eliminar(e.id)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition"
         >
           <Trash2 size={16} />
         </button>
@@ -239,20 +239,20 @@ export default function CalendarioPage() {
   )
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
+    <main className="min-h-screen p-4 pb-28">
       <div className="max-w-md mx-auto">
 
         <h1 className="text-2xl font-bold mb-1">Agenda Familiar</h1>
-        <p className="text-sm text-slate-500 mb-6">Lo que necesita atención en casa</p>
+        <p className="text-sm text-muted mb-6">Lo que necesita atención en casa</p>
 
         {/* Formulario */}
-        <div className="bg-slate-900 rounded-xl p-4 space-y-3 mb-6">
+        <div className="surface border-subtle rounded-xl p-4 space-y-3 mb-6">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">
+            <p className="text-xs text-muted font-medium uppercase tracking-wide">
               {editandoId ? "Corrigiendo plan" : "Nuevo"}
             </p>
             {editandoId && (
-              <button onClick={cancelarEdicion} className="text-slate-500 hover:text-slate-300 transition w-8 h-8 flex items-center justify-center">
+              <button onClick={cancelarEdicion} className="text-muted hover:text-secondary transition w-8 h-8 flex items-center justify-center">
                 <X size={16} />
               </button>
             )}
@@ -262,16 +262,18 @@ export default function CalendarioPage() {
             <button
               onClick={() => setTipo("evento")}
               className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                tipo === "evento" ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                tipo === "evento" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
+              style={tipo === "evento" ? { background: "var(--accent)" } : undefined}
             >
               <Calendar size={13} /> Evento
             </button>
             <button
               onClick={() => setTipo("tarea")}
               className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                tipo === "tarea" ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                tipo === "tarea" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
+              style={tipo === "tarea" ? { background: "var(--accent)" } : undefined}
             >
               <ListChecks size={13} /> Tarea
             </button>
@@ -282,14 +284,16 @@ export default function CalendarioPage() {
             onChange={e => setTitulo(e.target.value)}
             onKeyDown={e => e.key === "Enter" && guardar()}
             placeholder={tipo === "tarea" ? "¿Qué hay que hacer?" : "¿Qué tienen planeado?"}
-            className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-green-500"
+            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
           />
 
           <input
             value={descripcion}
             onChange={e => setDescripcion(e.target.value)}
             placeholder="Detalles (opcional) — ej. qué materiales llevar"
-            className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-green-500"
+            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
           />
 
           <div className="grid grid-cols-2 gap-2">
@@ -297,22 +301,24 @@ export default function CalendarioPage() {
               value={fecha}
               onChange={e => setFecha(e.target.value)}
               type="date"
-              className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-green-500 min-w-0"
+              className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
+              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
             />
             <input
               value={hora}
               onChange={e => setHora(e.target.value)}
               type="time"
-              className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-green-500 min-w-0"
+              className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
+              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
             />
           </div>
 
-          <p className="text-xs text-slate-500 pt-1">¿A quién le compete?</p>
+          <p className="text-xs text-muted pt-1">¿A quién le compete?</p>
           <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => setAsignadoA(userId)}
               className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
-                asignadoA === userId ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                asignadoA === userId ? "bg-emerald-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
             >
               A mí
@@ -320,7 +326,7 @@ export default function CalendarioPage() {
             <button
               onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
               className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
-                asignadoA === otroPerfil?.id && otroPerfil ? "bg-purple-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                asignadoA === otroPerfil?.id && otroPerfil ? "bg-purple-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
             >
               {otroPerfil ? otroPerfil.nombre : "Pareja"}
@@ -328,7 +334,7 @@ export default function CalendarioPage() {
             <button
               onClick={() => setAsignadoA(null)}
               className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
-                asignadoA === null ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                asignadoA === null ? "bg-blue-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
             >
               Ambos
@@ -355,7 +361,7 @@ export default function CalendarioPage() {
           <button
             onClick={guardar}
             disabled={guardando || !titulo.trim() || !fecha}
-            className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
+            className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
           >
             <CalendarPlus size={16} />
             {guardando ? "Guardando..." : editandoId ? "Actualizar" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
@@ -364,7 +370,7 @@ export default function CalendarioPage() {
 
         {loading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-xl h-16 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-xl h-16 animate-pulse" />)}
           </div>
         ) : (
           <>
@@ -380,14 +386,14 @@ export default function CalendarioPage() {
             {Object.keys(proximosPorFecha).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-4xl mb-3">🌿</div>
-                <p className="text-base font-medium text-slate-300">La casa está en calma</p>
-                <p className="text-sm text-slate-500 mt-1">No hay tareas pendientes ni eventos próximos</p>
+                <p className="text-base font-medium text-secondary">La casa está en calma</p>
+                <p className="text-sm text-muted mt-1">No hay tareas pendientes ni eventos próximos</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {Object.entries(proximosPorFecha).map(([f, evts]) => (
                   <div key={f}>
-                    <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-2 pl-1">
+                    <p className="text-xs text-muted font-medium uppercase tracking-wide mb-2 pl-1">
                       {formatFecha(f)}
                     </p>
                     <div className="space-y-2">{evts.map(e => renderItem(e))}</div>
@@ -398,7 +404,7 @@ export default function CalendarioPage() {
 
             {completadas.length > 0 && (
               <div className="mt-6">
-                <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                <p className="text-xs text-muted uppercase tracking-wide mb-2">
                   Completadas (últimos {DIAS_VISIBLES_COMPLETADAS} días)
                 </p>
                 <div className="space-y-2">{completadas.map(e => renderItem(e))}</div>

@@ -8,6 +8,8 @@ import {
   ChevronDown, Flame, CalendarDays,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
+import { calcularBalance }
+from "@/lib/finanzas"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 

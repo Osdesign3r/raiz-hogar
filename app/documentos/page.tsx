@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase"
 import type { Documento, DocumentoCategoria, DocumentoVisibilidad, Miembro } from "@/lib/types"
 import {
   Upload, Trash2, Pencil, X, Search, Lock, Users,
-  AlertTriangle, Clock, ExternalLink, FileText,
+  AlertTriangle, Clock, ExternalLink,
 } from "lucide-react"
 
 const CATEGORIAS: DocumentoCategoria[] = [
@@ -315,43 +315,44 @@ d=>d.id
 
   const documentosFiltrados = useMemo(() => {
     return documentos.filter(d => {
+      // Los vencidos y por-vencer ya tienen su propia sección arriba —
+      // si no los excluimos acá siempre, aparecen duplicados en "Todos".
+      if (idsEspeciales.has(d.id)) return false
       if (filtro !== "todos" && d.visibilidad !== filtro) return false
       if (busqueda.trim()) {
         const q = busqueda.toLowerCase()
         const enNombre = d.nombre.toLowerCase().includes(q)
         const enEtiquetas = (d.etiquetas ?? []).some(e => e.toLowerCase().includes(q))
         if (!enNombre && !enEtiquetas) return false
-        if(idsEspeciales.has(d.id))
-
-return false
       }
       return true
     })
-  }, [documentos, filtro, busqueda])
+  }, [documentos, filtro, busqueda, idsEspeciales])
 
   const fmtVencimiento = (fecha: string) => {
     const dias = diasEntre(fecha, hoy())
     if (dias < 0) return { texto: `Venció hace ${Math.abs(dias)} días`, color: "text-red-400" }
     if (dias === 0) return { texto: "Vence hoy", color: "text-amber-400" }
     if (dias <= 30) return { texto: `Vence en ${dias} días`, color: "text-amber-400" }
-    return { texto: `Vence ${fecha}`, color: "text-slate-500" }
+    return { texto: `Vence ${fecha}`, color: "text-muted" }
   }
 
   const renderItem = (d: Documento, destacar?: "vencido" | "porVencer") => (
     <div
       key={d.id}
       className={`rounded-xl p-4 flex items-center justify-between gap-3 group transition ${
-        d.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" :
+        d.id === editandoId ? "surface border-subtle ring-1" :
         destacar === "vencido"   ? "bg-red-500/10 border border-red-500/30" :
         destacar === "porVencer" ? "bg-amber-500/10 border border-amber-500/30" :
-        "bg-slate-900"
+        "surface border-subtle"
       }`}
+      style={d.id === editandoId ? { "--tw-ring-color": "var(--accent)" } as React.CSSProperties : undefined}
     >
       <button onClick={() => verArchivo(d)} className="flex items-center gap-3 min-w-0 flex-1 text-left">
         <span className="text-xl shrink-0">{ICONO_CATEGORIA[d.categoria]}</span>
         <div className="min-w-0">
           <p className="font-medium text-sm truncate">{d.nombre}</p>
-          <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
+          <p className="text-xs text-muted flex items-center gap-1.5 flex-wrap">
             <span>{nombreMiembro(d.miembro_id)}</span>
             <span>·</span>
             {d.visibilidad === "privado" ? (
@@ -375,7 +376,7 @@ return false
 
 key={tag}
 
-className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400"
+className="px-2 py-0.5 rounded-full bg-[var(--surface-2)] text-[10px] text-muted"
 
 >
 
@@ -391,7 +392,7 @@ className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400"
         </div>
       </button>
       <div className="flex items-center gap-2 shrink-0">
-        <button onClick={() => verArchivo(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition" title="Ver archivo">
+        <button onClick={() => verArchivo(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition" title="Ver archivo">
           <ExternalLink size={16} />
         </button>
         {d.created_by === userId && (
@@ -400,7 +401,7 @@ className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400"
 
 onClick={() => editarDocumento(d)}
 
-className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition"
+className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition"
 
 >
 
@@ -415,7 +416,7 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
 
 onClick={() => eliminarDocumento(d)}
 
-className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition"
+className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition"
 
 >
 
@@ -429,27 +430,27 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
   )
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
+    <main className="min-h-screen p-4 pb-28">
       <div className="max-w-md mx-auto">
 
         <h1 className="text-2xl font-bold mb-5">Documentos</h1>
 
         {/* Formulario */}
-        <div className="bg-slate-900 rounded-xl p-4 mb-5 space-y-3">
+        <div className="surface border-subtle rounded-xl p-4 mb-5 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">
+            <p className="text-xs text-muted font-medium uppercase tracking-wide">
               {editandoId ? "Editando documento" : "Nuevo documento"}
             </p>
             {editandoId && (
-              <button onClick={limpiarFormulario} className="text-slate-500 hover:text-slate-300 transition">
+              <button onClick={limpiarFormulario} className="text-muted hover:text-secondary transition">
                 <X size={16} />
               </button>
             )}
           </div>
 
           {/* Archivo */}
-          <label className="flex items-center gap-2 p-3 rounded-lg bg-slate-800 text-sm text-slate-300 cursor-pointer hover:bg-slate-700 transition">
-            <Upload size={15} className="shrink-0 text-slate-500" />
+          <label className="flex items-center gap-2 p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary cursor-pointer hover:opacity-80 transition">
+            <Upload size={15} className="shrink-0 text-muted" />
             <span className="truncate">
               {archivo ? archivo.name : editandoId ? "Reemplazar archivo (opcional)" : "Selecciona un archivo"}
             </span>
@@ -465,14 +466,16 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
             value={nombre}
             onChange={e => setNombre(e.target.value)}
             placeholder="Nombre del documento"
-            className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
           />
 
           <div className="grid grid-cols-2 gap-2">
             <select
               value={categoria}
               onChange={e => setCategoria(e.target.value as DocumentoCategoria)}
-              className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+              className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
+              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
             >
               {CATEGORIAS.map(c => (
                 <option key={c} value={c}>{ICONO_CATEGORIA[c]} {c}</option>
@@ -481,7 +484,8 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
             <select
               value={miembroId}
               onChange={e => setMiembroId(e.target.value)}
-              className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+              className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
+              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
             >
               <option value="">General del hogar</option>
               {miembros.map(m => (
@@ -494,8 +498,9 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
             <button
               onClick={() => setVisibilidad("compartido")}
               className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                visibilidad === "compartido" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
+              style={visibilidad === "compartido" ? { background: "var(--accent)" } : undefined}
             >
               <Users size={13} /> Compartido
             </button>
@@ -504,22 +509,24 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
               disabled={editandoAjeno}
               title={editandoAjeno ? "No puedes hacer privado un documento que subió tu pareja" : undefined}
               className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                editandoAjeno          ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
-                visibilidad==="privado"? "bg-blue-600 text-white" :
-                                         "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                editandoAjeno          ? "bg-[var(--surface-2)]/40 text-muted cursor-not-allowed" :
+                visibilidad==="privado"? "text-white" :
+                                         "bg-[var(--surface-2)] text-muted hover:opacity-80"
               }`}
+              style={!editandoAjeno && visibilidad === "privado" ? { background: "var(--accent)" } : undefined}
             >
               <Lock size={13} /> Privado
             </button>
           </div>
 
           <div>
-            <p className="text-xs text-slate-500 mb-1">Fecha de vencimiento (opcional)</p>
+            <p className="text-xs text-muted mb-1">Fecha de vencimiento (opcional)</p>
             <input
               value={vencimiento}
               onChange={e => setVencimiento(e.target.value)}
               type="date"
-              className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
+              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
             />
           </div>
 
@@ -527,7 +534,8 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
             value={etiquetas}
             onChange={e => setEtiquetas(e.target.value)}
             placeholder="Etiquetas separadas por coma (ej. pasaporte, urgente)"
-            className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
           />
 
           <textarea
@@ -535,7 +543,8 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
             onChange={e => setNotas(e.target.value)}
             placeholder="Notas (opcional)"
             rows={2}
-            className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1 resize-none"
+            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
           />
 
           {error && <p className="text-red-400 text-xs">{error}</p>}
@@ -545,7 +554,7 @@ className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 ho
 
 onClick={limpiarFormulario}
 
-className="w-full p-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium transition"
+className="w-full p-3 rounded-lg bg-[var(--surface-2)] hover:opacity-80 text-sm font-medium transition"
 
 >
 
@@ -558,7 +567,7 @@ Cancelar edición
           <button
             onClick={guardarDocumento}
             disabled={guardando || !nombre.trim() || (!editandoId && !archivo)}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
+            className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
           >
             <Upload size={16} />
             {guardando ? "Guardando..." : editandoId ? "Actualizar documento" : "Guardar documento"}
@@ -567,7 +576,7 @@ Cancelar edición
 
         {loading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-xl h-16 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-xl h-16 animate-pulse" />)}
           </div>
         ) : (
           <>
@@ -593,13 +602,13 @@ Cancelar edición
 
             {/* Búsqueda + filtro */}
             <div className="flex gap-2 mb-3">
-              <div className="flex-1 flex items-center gap-2 bg-slate-900 rounded-lg px-3">
-                <Search size={14} className="text-slate-500 shrink-0" />
+              <div className="flex-1 flex items-center gap-2 surface border-subtle rounded-lg px-3">
+                <Search size={14} className="text-muted shrink-0" />
                 <input
                   value={busqueda}
                   onChange={e => setBusqueda(e.target.value)}
                   placeholder="Buscar documento o etiqueta..."
-                  className="w-full bg-transparent text-sm py-2.5 outline-none placeholder-slate-500"
+                  className="w-full bg-transparent text-sm py-2.5 outline-none placeholder:text-muted"
                 />
               </div>
             </div>
@@ -609,8 +618,9 @@ Cancelar edición
                   key={f}
                   onClick={() => setFiltro(f)}
                   className={`flex-1 p-2 rounded-lg text-xs font-medium transition ${
-                    filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                    filtro === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
+                  style={filtro === f ? { background: "var(--accent)" } : undefined}
                 >
                   {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Privados"}
                 </button>
@@ -618,36 +628,14 @@ Cancelar edición
             </div>
 
             {documentosFiltrados.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <FileText size={32} className="mx-auto mb-2 opacity-30" />
               <div className="text-center py-12">
-
-<div className="text-4xl mb-3">
-
-📂
-
-</div>
-
-
-<p className="text-base font-medium text-slate-300">
-
-La carpeta está vacía
-
-</p>
-
-
-<p className="text-sm text-slate-500 mt-1">
-
-{busqueda
-
-? "No encontramos documentos con ese criterio"
-
-: "Guarda aquí documentos importantes de la familia"}
-
-</p>
-
-
-</div>
+                <div className="text-4xl mb-3">📂</div>
+                <p className="text-base font-medium text-secondary">La carpeta está vacía</p>
+                <p className="text-sm text-muted mt-1">
+                  {busqueda
+                    ? "No encontramos documentos con ese criterio"
+                    : "Guarda aquí documentos importantes de la familia"}
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
