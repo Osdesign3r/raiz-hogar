@@ -35,7 +35,7 @@ export const metadata: Metadata = {
 // themeColor vivía dentro de `metadata` — deprecado desde Next 14, Next.js
 // lo ignora silenciosamente ahí. Va en su propio export `viewport`.
 export const viewport: Viewport = {
-  themeColor: "#2563eb",
+  themeColor: "#6C47FF",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

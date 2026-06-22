@@ -31,7 +31,6 @@ const nombreMes = (mes: string) => {
 
 const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
 
-type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
 
 export default function FinanzasPage() {
@@ -265,34 +264,16 @@ valor:Number(valor)
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
-  const resumenPorPersona = useMemo((): ResumenPersona[] => {
-    const pagado: Record<string, number> = {}
-    const resp:   Record<string, number> = {}
-    perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
-
-    compartidos.forEach(g => {
-      const v   = Number(g.valor) || 0
-      const pct = g.porcentaje_pagador ?? 50
-      if (!g.pagado_por || !(g.pagado_por in pagado)) return
-      pagado[g.pagado_por] += v
-      resp[g.pagado_por] += v * pct / 100
-      const otro = perfiles.find(p => p.id !== g.pagado_por)
-      if (otro) resp[otro.id] += v * (100 - pct) / 100
-    })
-
-    return perfiles.map(p => ({
-      ...p,
-      pagado:          pagado[p.id] ?? 0,
-      responsabilidad: resp[p.id]   ?? 0,
-      saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
-    }))
-  }, [compartidos, perfiles])
+  const balanceHogar = useMemo(
+    () => calcularBalance(perfiles, compartidos),
+    [perfiles, compartidos]
+  )
+  const resumenPorPersona = balanceHogar.resumen
+  const acreedor = balanceHogar.acreedor
+  const deudor   = balanceHogar.deudor
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
-
-  const acreedor = resumenPorPersona.find(p => p.saldo >  0.5)
-  const deudor   = resumenPorPersona.find(p => p.saldo < -0.5)
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
@@ -361,40 +342,40 @@ valor:Number(valor)
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
+    <main className="min-h-screen p-4 pb-28">
       <div className="max-w-md mx-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Finanzas</h1>
-          <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-2 py-1">
-            <TrendingUp size={14} className="text-slate-400" />
+          <div className="flex items-center gap-1 bg-[var(--surface-2)] rounded-lg px-2 py-1">
+            <TrendingUp size={14} className="text-muted" />
             <input
               type="month"
               value={mesActivo}
               onChange={e => setMesActivo(e.target.value)}
-              className="bg-transparent text-sm text-slate-300 outline-none"
+              className="bg-transparent text-sm text-secondary outline-none"
             />
           </div>
         </div>
 
         {loading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-2xl h-24 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-2xl h-24 animate-pulse" />)}
           </div>
         ) : (
           <>
             {/* ── Lo primero que se ve: el balance ──────────────────────── */}
-            <div className="bg-slate-900 rounded-2xl p-4 mb-3 space-y-3">
+            <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide flex items-center gap-1">
+                <p className="text-xs text-muted font-medium uppercase tracking-wide flex items-center gap-1">
                   <Users size={11} /> Gasto compartido de {nombreMes(mesActivo)}
                 </p>
                 {deltaTotalPct !== null && (
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
                     deltaTotalPct > 0 ? "bg-red-500/15 text-red-400" :
                     deltaTotalPct < 0 ? "bg-green-500/15 text-green-400" :
-                                        "bg-slate-700 text-slate-400"
+                                        "bg-[var(--surface-2)] text-muted"
                   }`}>
                     {deltaTotalPct > 0 ? <TrendingUp size={11} /> : deltaTotalPct < 0 ? <TrendingDown size={11} /> : null}
                     {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
@@ -404,14 +385,14 @@ valor:Number(valor)
               <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
 
               {resumenPorPersona.map(p => (
-                <div key={p.id} className="bg-slate-800 rounded-xl p-3">
+                <div key={p.id} className="bg-[var(--surface-2)] rounded-xl p-3">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-medium">{esYo(p.id) ? `Tú (${p.nombre})` : p.nombre}</p>
                     <span
                       className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                         p.saldo > 0.5  ? "bg-green-500/15 text-green-400" :
                         p.saldo < -0.5 ? "bg-red-500/15 text-red-400"    :
-                                         "bg-slate-700 text-slate-400"
+                                         "bg-[var(--surface-2)] text-muted"
                       }`}
                     >
                       {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}`  :
@@ -419,7 +400,7 @@ valor:Number(valor)
                                         "En paz"}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted">
                     <div><p>Pagó</p><p className="text-white font-medium text-sm">{fmt(p.pagado)}</p></div>
                     <div><p>Le correspondía</p><p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p></div>
                   </div>
@@ -434,28 +415,28 @@ valor:Number(valor)
                   </p>
                 </div>
               ) : totalCompartido > 0 ? (
-                <p className="text-xs text-slate-500 text-center py-1">✓ Están en paz</p>
+                <p className="text-xs text-muted text-center py-1">✓ Están en paz</p>
               ) : null}
             </div>
 
             {/* ── Stats rápidas ──────────────────────────────────────────── */}
             {totalCompartido > 0 && (
               <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="bg-slate-900 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
+                <div className="surface border-subtle rounded-xl p-3">
+                  <p className="text-xs text-muted flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
                   <p className="font-bold text-sm">{fmt(promedioDiario)}</p>
                 </div>
-                <div className="bg-slate-900 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
+                <div className="surface border-subtle rounded-xl p-3">
+                  <p className="text-xs text-muted flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
                   <p className="font-bold text-sm truncate">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
-                  {gastoMasGrande && <p className="text-[11px] text-slate-500 truncate">{gastoMasGrande.concepto}</p>}
+                  {gastoMasGrande && <p className="text-[11px] text-muted truncate">{gastoMasGrande.concepto}</p>}
                 </div>
               </div>
             )}
 
             {totalPersonal > 0 && (
-              <div className="bg-slate-900 rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
-                <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
+              <div className="surface border-subtle rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
+                <p className="text-xs text-muted flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
                 <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
               </div>
             )}
@@ -471,7 +452,7 @@ valor:Number(valor)
                     }`}
                   >
                     <span className="text-lg shrink-0">{i.emoji}</span>
-                    <p className="text-sm text-slate-300 leading-snug">
+                    <p className="text-sm text-secondary leading-snug">
                       Gastaste{" "}
                       <span className={`font-semibold ${i.delta > 0 ? "text-red-400" : "text-green-400"}`}>
                         {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
@@ -485,17 +466,17 @@ valor:Number(valor)
 
             {/* ── Desglose por categoría — colapsado por defecto ─────────── */}
             {categoriasComparadas.length > 0 && (
-              <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
+              <div className="surface border-subtle rounded-2xl mb-4 overflow-hidden">
                 <button
                   onClick={() => setMostrarDesglose(v => !v)}
                   className="w-full flex items-center justify-between p-4"
                 >
-                  <p className="text-xs text-slate-400 uppercase tracking-wide">Desglose por categoría</p>
-                  <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
+                  <p className="text-xs text-muted uppercase tracking-wide">Desglose por categoría</p>
+                  <ChevronDown size={16} className={`text-muted transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
                 </button>
                 {mostrarDesglose && (
                   <div className="px-4 pb-4 space-y-3">
-                    <p className="text-[11px] text-slate-500 flex items-center gap-1 -mt-1">
+                    <p className="text-[11px] text-muted flex items-center gap-1 -mt-1">
                       <span className="w-2 h-0.5 bg-white/60 inline-block" /> mes anterior
                     </p>
                     {categoriasComparadas.map(c => {
@@ -504,11 +485,11 @@ valor:Number(valor)
                       return (
                         <div key={c.id}>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-slate-300">{c.emoji} {c.nombre}</span>
+                            <span className="text-secondary">{c.emoji} {c.nombre}</span>
                             <span className="font-medium">{fmt(c.actual)}</span>
                           </div>
-                          <div className="relative h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="absolute inset-y-0 left-0 bg-blue-600 rounded-full transition-all" style={{ width: `${pctActual}%` }} />
+                          <div className="relative h-2.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{ width: `${pctActual}%`, background: "var(--accent)" }} />
                             {c.anterior > 0 && (
                               <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${Math.min(pctAnterior, 99.5)}%` }} />
                             )}
@@ -523,15 +504,16 @@ valor:Number(valor)
 
             {/* ── Filtros + lista de movimientos ─────────────────────────── */}
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-slate-400 uppercase tracking-wide">Movimientos</p>
+              <p className="text-xs text-muted uppercase tracking-wide">Movimientos</p>
               <div className="flex gap-1.5">
                 {(["todos", "compartido", "privado"] as const).map(f => (
                   <button
                     key={f}
                     onClick={() => setFiltro(f)}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
-                      filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                      filtro === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                     }`}
+                    style={filtro === f ? { background: "var(--accent)" } : undefined}
                   >
                     {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
                   </button>
@@ -544,7 +526,7 @@ valor:Number(valor)
             )}
 
             {gastosFiltrados.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
+              <div className="text-center py-12 text-muted">
                 <p className="text-3xl mb-2">💸</p>
                 <p className="text-sm">No hay gastos este mes</p>
               </div>
@@ -554,14 +536,15 @@ valor:Number(valor)
                   <div
                     key={g.id}
                     className={`rounded-xl p-4 flex items-center justify-between group transition ${
-                      g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
+                      g.id === editandoId ? "surface border-subtle ring-1" : "surface border-subtle"
                     }`}
+                    style={g.id === editandoId ? { "--tw-ring-color": "var(--accent)" } as React.CSSProperties : undefined}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{g.concepto}</p>
-                        <p className="text-xs text-slate-400 flex items-center gap-1">
+                        <p className="text-xs text-muted flex items-center gap-1">
                           {g.fecha} ·{" "}
                           {g.visibilidad === "privado" ? (
                             <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
@@ -576,10 +559,10 @@ valor:Number(valor)
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
-                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition">
+                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:bg-[var(--surface-2)] transition">
                         <Pencil size={16} />
                       </button>
-                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition">
+                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:bg-[var(--surface-2)] transition">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -600,10 +583,11 @@ valor:Number(valor)
     right-4
     w-14 h-14
     rounded-full
-    bg-blue-600
+    accent-gradient
     shadow-lg
     flex items-center justify-center
     z-40
+    text-white
   "
 >
   <Plus size={26}/>
@@ -615,15 +599,15 @@ valor:Number(valor)
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
             <div
               className={`relative w-full 
-                max-w-md bg-slate-900 rounded-t-3xl 
+                max-w-md surface border-subtle rounded-t-3xl 
                 p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 
                 transition-transform duration-300 ease-out ${
                 hojaVisible ? "translate-y-0" : "translate-y-full"
               }`}
             >
-              <div className="flex items-center justify-between sticky top-0 bg-slate-900 pb-1">
+              <div className="flex items-center justify-between sticky top-0 surface border-subtle pb-1">
                 <p className="text-sm font-semibold">{editandoId ? "Editando gasto" : "Nuevo gasto"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition">
+                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary hover:bg-[var(--surface-2)] transition">
                   <X size={18} />
                 </button>
               </div>
@@ -632,8 +616,9 @@ valor:Number(valor)
                 <button
                   onClick={() => setVisibilidad("compartido")}
                   className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                    visibilidad === "compartido" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
+                  style={visibilidad === "compartido" ? { background: "var(--accent)" } : undefined}
                 >
                   <Users size={13} /> Compartido
                 </button>
@@ -642,10 +627,11 @@ valor:Number(valor)
                   disabled={editandoAjeno}
                   title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
                   className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    editandoAjeno          ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
-                    visibilidad==="privado"? "bg-blue-600 text-white" :
-                                             "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                    editandoAjeno          ? "bg-[var(--surface-2)]/40 text-muted cursor-not-allowed" :
+                    visibilidad==="privado"? "text-white" :
+                                             "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
+                  style={!editandoAjeno && visibilidad === "privado" ? { background: "var(--accent)" } : undefined}
                 >
                   <Lock size={13} /> Personal
                 </button>
@@ -657,8 +643,8 @@ valor:Number(valor)
                 onKeyDown={e => e.key === "Enter" && guardarGasto()}
                 placeholder="¿En qué gastaste?"
                 autoFocus
-                
-                className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
               />
 
               <div className="grid grid-cols-2 gap-2">
@@ -668,20 +654,23 @@ valor:Number(valor)
                   placeholder="Valor"
                   type="number"
                   min="0"
-                  className="p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                  className="p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
                 />
                 <input
                   value={fecha}
                   onChange={e => setFecha(e.target.value)}
                   type="date"
-                  className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
+                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
                 />
               </div>
 
               <select
                 value={categoriaId}
                 onChange={e => setCategoriaId(e.target.value)}
-                className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
+                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
               >
                 <option value="">Sin categoría</option>
                 {categorias.map(c => (
@@ -690,23 +679,24 @@ valor:Number(valor)
               </select>
 
               {visibilidad === "compartido" && (
-                <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <p className="text-xs text-slate-500">¿Quién puso el dinero?</p>
+                <div className="space-y-2 pt-2 border-t border-white/10">
+                  <p className="text-xs text-muted">¿Quién puso el dinero?</p>
                   <div className="grid grid-cols-2 gap-2">
                     {perfiles.map(p => (
                       <button
                         key={p.id}
                         onClick={() => setPagadoPor(p.id)}
                         className={`p-2 rounded-lg text-xs font-medium truncate transition ${
-                          pagadoPor === p.id ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                          pagadoPor === p.id ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                         }`}
+                        style={pagadoPor === p.id ? { background: "var(--accent)" } : undefined}
                       >
                         {esYo(p.id) ? `Yo (${p.nombre})` : p.nombre}
                       </button>
                     ))}
                   </div>
 
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted">
                     ¿Cómo se divide? — a quien pagó le corresponde el{" "}
                     <span className="text-white font-medium">{pctPagador}%</span>
                   </p>
@@ -720,8 +710,9 @@ valor:Number(valor)
                         key={opt.v}
                         onClick={() => setPctPagador(opt.v)}
                         className={`p-2 rounded-lg text-[11px] leading-tight font-medium transition ${
-                          pctPagador === opt.v ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                          pctPagador === opt.v ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                         }`}
+                        style={pctPagador === opt.v ? { background: "var(--accent)" } : undefined}
                       >
                         {opt.label}
                       </button>
@@ -729,7 +720,7 @@ valor:Number(valor)
                   </div>
 
                   {valor && Number(valor) > 0 && pagadoPor && (
-                    <div className="bg-slate-800 rounded-lg px-3 py-2 text-xs text-slate-400">
+                    <div className="bg-[var(--surface-2)] rounded-lg px-3 py-2 text-xs text-muted">
                       {pctPagador === 100
                         ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
                         : pctPagador === 0
@@ -744,7 +735,7 @@ valor:Number(valor)
               <button
                 onClick={guardarGasto}
                 disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
+                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
               >
                 <Plus size={16} />
                 {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}

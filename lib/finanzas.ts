@@ -1,8 +1,23 @@
 // lib/finanzas.ts
+import type { Gasto, Perfil } from "./types"
+
+export type ResumenPersona = Pick<Perfil, "id" | "nombre"> & {
+  pagado: number
+  responsabilidad: number
+  saldo: number
+}
+
+export type BalanceHogar = {
+  resumen: ResumenPersona[]
+  acreedor: ResumenPersona | null
+  deudor: ResumenPersona | null
+  diferencia: number
+}
+
 export function calcularBalance(
-  perfiles: { id: string; nombre: string }[],
-  gastos: any[]
-) {
+  perfiles: Pick<Perfil, "id" | "nombre">[],
+  gastos: Pick<Gasto, "valor" | "pagado_por" | "porcentaje_pagador">[]
+): BalanceHogar {
   const pagado: Record<string, number> = {}
   const responsabilidad: Record<string, number> = {}
 
@@ -14,12 +29,7 @@ export function calcularBalance(
   const [a, b] = perfiles
 
   if (!a || !b) {
-    return {
-      resumen: [],
-      acreedor: null,
-      deudor: null,
-      diferencia: 0
-    }
+    return { resumen: [], acreedor: null, deudor: null, diferencia: 0 }
   }
 
   gastos.forEach(g => {
@@ -41,26 +51,24 @@ export function calcularBalance(
     responsabilidad[otro] += (valor * (100 - pct)) / 100
   })
 
-  const resumen = perfiles.map(p => {
-    const saldo =
-      pagado[p.id] - responsabilidad[p.id]
-
+  const resumen: ResumenPersona[] = perfiles.map(p => {
+    const saldo = pagado[p.id] - responsabilidad[p.id]
     return {
       id: p.id,
       nombre: p.nombre,
       pagado: pagado[p.id],
       responsabilidad: responsabilidad[p.id],
-      saldo
+      saldo,
     }
   })
 
-  const acreedor = resumen.find(p => p.saldo > 0.5)
-  const deudor = resumen.find(p => p.saldo < -0.5)
+  const acreedor = resumen.find(p => p.saldo > 0.5) ?? null
+  const deudor = resumen.find(p => p.saldo < -0.5) ?? null
 
   return {
     resumen,
     acreedor,
     deudor,
-    diferencia: acreedor?.saldo ?? 0
+    diferencia: acreedor?.saldo ?? 0,
   }
 }
