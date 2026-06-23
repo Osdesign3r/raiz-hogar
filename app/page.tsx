@@ -5,11 +5,6 @@ import HouseholdCard from "@/components/home/HouseholdCard"
 import TodayTimeline from "@/components/home/TodayTimeline"
 import ActivityFeed from "@/components/home/ActivityFeed"
 import QuickActions from "@/components/home/QuickActions"
-import {
-calcularBalance
-}
-from "@/lib/finanzas"
-
 import { useDashboard } from "@/hooks/useDashboard"
 
 
