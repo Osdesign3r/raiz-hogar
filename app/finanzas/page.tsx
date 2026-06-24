@@ -222,7 +222,10 @@ otroPerfil.id,
 
 "Nuevo gasto",
 
-`${nombreSujeto(userId)} agregó ${fmt(Number(valor))}`,
+// nombreSujeto(userId) decía "Tú" siempre — correcto para lo que se
+// renderiza en TU pantalla, pero este texto lo lee tu pareja, no vos.
+// Necesita tu nombre real, no tu pronombre.
+`${perfiles.find(p => p.id === userId)?.nombre ?? "Alguien"} agregó ${fmt(Number(valor))}`,
 
 {
 

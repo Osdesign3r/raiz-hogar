@@ -15,6 +15,8 @@ export async function requestNotificationPermission() {
 
   if (!("Notification" in window)) return null
 
+  if (!("serviceWorker" in navigator)) return null
+
   const permission = await Notification.requestPermission()
 
   if (permission !== "granted") return null
@@ -22,8 +24,16 @@ export async function requestNotificationPermission() {
   try {
     const messaging = getMessaging(app)
 
+    // Antes Firebase intentaba auto-registrar /firebase-messaging-sw.js,
+    // un archivo que vivía en lib/ y nunca era alcanzable como URL real —
+    // 404 silencioso, getToken() fallaba, nada se guardaba. Ahora le pasamos
+    // el registro de TU service worker (public/sw.js, ya fusionado con la
+    // lógica de Firebase) en vez de dejar que busque uno que no existe.
+    const swRegistration = await navigator.serviceWorker.ready
+
     const token = await getToken(messaging, {
-      vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
+      vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+      serviceWorkerRegistration: swRegistration,
     })
 
     if (!token) return null
