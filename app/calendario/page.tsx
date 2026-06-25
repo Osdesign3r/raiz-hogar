@@ -6,6 +6,7 @@ import type { Evento, EventoInsert, EventoTipo, Perfil } from "@/lib/types"
 import {
   CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil, X,
 } from "lucide-react"
+import { createNotification } from "@/lib/notifications"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -44,9 +45,6 @@ export default function CalendarioPage() {
   const [descripcion,  setDescripcion] = useState("")
   const [editandoId,   setEditandoId]  = useState<string | null>(null)
 
-  // Refresco liviano: solo eventos, sin tocar `loading`. Lo usan tanto las
-  // acciones locales (guardar/editar) como el eco de Realtime — así nunca
-  // parpadea el esqueleto de carga sobre algo que ya se actualizó al instante.
   const refrescarEventos = useCallback(async () => {
     const { data, error: err } = await supabase
       .from("eventos")
@@ -74,7 +72,7 @@ export default function CalendarioPage() {
     const channel = supabase
       .channel("eventos")
       .on("postgres_changes", { event: "*", schema: "public", table: "eventos" }, () => {
-        refrescarEventos() // silencioso — no usa cargar(), no muestra el esqueleto
+        refrescarEventos()
       })
       .subscribe()
 
@@ -116,6 +114,8 @@ export default function CalendarioPage() {
     setGuardando(true)
     setError(null)
 
+    const esNuevo = !editandoId
+
     const payload: EventoInsert = {
       titulo:      titulo.trim(),
       fecha,
@@ -134,6 +134,17 @@ export default function CalendarioPage() {
     if (res.error) {
       setError("No se pudo guardar.")
     } else {
+      // Antes esto solo pasaba en gastos. Tu pareja podía llenar el calendario
+      // entero y tú no te enterabas hasta abrir la app por curiosidad.
+      if (esNuevo && otroPerfil) {
+        await createNotification(
+          otroPerfil.id,
+          payload.tipo,
+          payload.tipo === "tarea" ? "Nueva tarea" : "Nuevo evento",
+          `${payload.titulo}${payload.fecha ? " · " + payload.fecha : ""}`,
+          { titulo: payload.titulo, fecha: payload.fecha, tipo: payload.tipo }
+        )
+      }
       cancelarEdicion()
       await refrescarEventos()
     }
@@ -169,8 +180,6 @@ export default function CalendarioPage() {
     () => eventos.filter(e => e.fecha >= hoy() && !(e.tipo === "tarea" && e.completado)),
     [eventos]
   )
-  // Acotado a los últimos N días — si no, se acumulan para siempre y la pantalla
-  // termina siendo un cementerio de mandados en vez de algo útil de revisar.
   const completadas = useMemo(() => {
     const limite = new Date()
     limite.setDate(limite.getDate() - DIAS_VISIBLES_COMPLETADAS)
@@ -218,9 +227,6 @@ export default function CalendarioPage() {
           </p>
         </div>
       </div>
-      {/* shrink-0 + tamaño táctil mínimo de 44px — en mobile no hay :hover,
-          así que opacity-0 group-hover:opacity-100 dejaría estos botones
-          invisibles e imposibles de tocar en touch screens. */}
       <div className="flex gap-1 shrink-0">
         <button
           onClick={() => editarEvento(e)}
@@ -245,7 +251,6 @@ export default function CalendarioPage() {
         <h1 className="text-2xl font-bold mb-1">Agenda Familiar</h1>
         <p className="text-sm text-muted mb-6">Lo que necesita atención en casa</p>
 
-        {/* Formulario */}
         <div className="surface border-subtle rounded-xl p-4 space-y-3 mb-6">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted font-medium uppercase tracking-wide">
