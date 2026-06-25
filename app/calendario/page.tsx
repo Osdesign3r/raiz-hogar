@@ -4,11 +4,17 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Evento, EventoInsert, EventoTipo, Perfil } from "@/lib/types"
 import {
-  CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil, X,
+  CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil, X, Plus, Clock3,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
 
 const hoy = () => new Date().toISOString().split("T")[0]
+
+const limiteSemana = () => {
+  const d = new Date()
+  d.setDate(d.getDate() + 7)
+  return d.toISOString().split("T")[0]
+}
 
 const COLOR_OPTIONS = [
   { value: "blue",   label: "Azul",    cls: "bg-blue-500"   },
@@ -35,6 +41,9 @@ export default function CalendarioPage() {
   const [loading,   setLoading]   = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [error,     setError]     = useState<string | null>(null)
+
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [hojaVisible,  setHojaVisible]  = useState(false)
 
   const [titulo,      setTitulo]      = useState("")
   const [fecha,        setFecha]       = useState(hoy())
@@ -79,6 +88,14 @@ export default function CalendarioPage() {
     return () => { supabase.removeChannel(channel) }
   }, [cargar, refrescarEventos])
 
+  useEffect(() => {
+    if (modalAbierto) {
+      const t = setTimeout(() => setHojaVisible(true), 10)
+      return () => clearTimeout(t)
+    }
+    setHojaVisible(false)
+  }, [modalAbierto])
+
   const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
   const nombreAsignado = useCallback(
@@ -97,6 +114,11 @@ export default function CalendarioPage() {
     setDescripcion("")
   }, [])
 
+  const abrirNuevo = () => {
+    cancelarEdicion()
+    setModalAbierto(true)
+  }
+
   const editarEvento = (e: Evento) => {
     setEditandoId(e.id)
     setTitulo(e.titulo)
@@ -106,7 +128,12 @@ export default function CalendarioPage() {
     setTipo(e.tipo)
     setAsignadoA(e.asignado_a)
     setDescripcion(e.descripcion || "")
-    window.scrollTo({ top: 0, behavior: "smooth" })
+    setModalAbierto(true)
+  }
+
+  const cerrarModal = () => {
+    setModalAbierto(false)
+    cancelarEdicion()
   }
 
   const guardar = async () => {
@@ -134,8 +161,6 @@ export default function CalendarioPage() {
     if (res.error) {
       setError("No se pudo guardar.")
     } else {
-      // Antes esto solo pasaba en gastos. Tu pareja podía llenar el calendario
-      // entero y tú no te enterabas hasta abrir la app por curiosidad.
       if (esNuevo && otroPerfil) {
         await createNotification(
           otroPerfil.id,
@@ -145,6 +170,7 @@ export default function CalendarioPage() {
           { titulo: payload.titulo, fecha: payload.fecha, tipo: payload.tipo }
         )
       }
+      setModalAbierto(false)
       cancelarEdicion()
       await refrescarEventos()
     }
@@ -156,7 +182,7 @@ export default function CalendarioPage() {
     const { error: err } = await supabase.from("eventos").delete().eq("id", id)
     if (!err) {
       setEventos(prev => prev.filter(e => e.id !== id))
-      if (editandoId === id) cancelarEdicion()
+      if (editandoId === id) cerrarModal()
     }
   }
 
@@ -169,6 +195,16 @@ export default function CalendarioPage() {
       .eq("id", e.id)
     if (!err) {
       setEventos(prev => prev.map(ev => ev.id === e.id ? { ...ev, completado, completado_at } : ev))
+      // Solo notifica al completar, no al des-marcar — evita ruido de toggles accidentales
+      if (completado && otroPerfil) {
+        await createNotification(
+          otroPerfil.id,
+          "tarea_completada",
+          "Tarea completada",
+          `✅ ${e.titulo}`,
+          { titulo: e.titulo }
+        )
+      }
     }
   }
 
@@ -186,6 +222,16 @@ export default function CalendarioPage() {
     return eventos.filter(e =>
       e.tipo === "tarea" && e.completado && e.completado_at && new Date(e.completado_at) >= limite
     )
+  }, [eventos])
+
+  // Chips de info — lo que antes había que inferir mirando toda la lista
+  const hoyCount = useMemo(
+    () => eventos.filter(e => e.fecha === hoy() && !(e.tipo === "tarea" && e.completado)).length,
+    [eventos]
+  )
+  const semanaCount = useMemo(() => {
+    const limite = limiteSemana()
+    return eventos.filter(e => e.fecha > hoy() && e.fecha <= limite && !(e.tipo === "tarea" && e.completado)).length
   }, [eventos])
 
   const proximosPorFecha = proximos.reduce<Record<string, Evento[]>>((acc, e) => {
@@ -249,128 +295,22 @@ export default function CalendarioPage() {
       <div className="max-w-md mx-auto">
 
         <h1 className="text-2xl font-bold mb-1">Agenda Familiar</h1>
-        <p className="text-sm text-muted mb-6">Lo que necesita atención en casa</p>
+        <p className="text-sm text-muted mb-4">Lo que necesita atención en casa</p>
 
-        <div className="surface border-subtle rounded-xl p-4 space-y-3 mb-6">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted font-medium uppercase tracking-wide">
-              {editandoId ? "Corrigiendo plan" : "Nuevo"}
-            </p>
-            {editandoId && (
-              <button onClick={cancelarEdicion} className="text-muted hover:text-secondary transition w-8 h-8 flex items-center justify-center">
-                <X size={16} />
-              </button>
-            )}
+        {/* Chips de info — reemplaza al formulario que antes ocupaba media pantalla */}
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <div className={`rounded-xl p-3 ${atrasados.length > 0 ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"}`}>
+            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><AlertTriangle size={11} /> Atrasado</p>
+            <p className={`font-bold text-lg ${atrasados.length > 0 ? "text-red-400" : ""}`}>{atrasados.length}</p>
           </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setTipo("evento")}
-              className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                tipo === "evento" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-              }`}
-              style={tipo === "evento" ? { background: "var(--accent)" } : undefined}
-            >
-              <Calendar size={13} /> Evento
-            </button>
-            <button
-              onClick={() => setTipo("tarea")}
-              className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                tipo === "tarea" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-              }`}
-              style={tipo === "tarea" ? { background: "var(--accent)" } : undefined}
-            >
-              <ListChecks size={13} /> Tarea
-            </button>
+          <div className="surface border-subtle rounded-xl p-3">
+            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><Clock3 size={11} /> Hoy</p>
+            <p className="font-bold text-lg">{hoyCount}</p>
           </div>
-
-          <input
-            value={titulo}
-            onChange={e => setTitulo(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && guardar()}
-            placeholder={tipo === "tarea" ? "¿Qué hay que hacer?" : "¿Qué tienen planeado?"}
-            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-          />
-
-          <input
-            value={descripcion}
-            onChange={e => setDescripcion(e.target.value)}
-            placeholder="Detalles (opcional) — ej. qué materiales llevar"
-            className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-          />
-
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              value={fecha}
-              onChange={e => setFecha(e.target.value)}
-              type="date"
-              className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
-              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-            />
-            <input
-              value={hora}
-              onChange={e => setHora(e.target.value)}
-              type="time"
-              className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
-              style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-            />
+          <div className="surface border-subtle rounded-xl p-3">
+            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><Calendar size={11} /> 7 días</p>
+            <p className="font-bold text-lg">{semanaCount}</p>
           </div>
-
-          <p className="text-xs text-muted pt-1">¿A quién le compete?</p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => setAsignadoA(userId)}
-              className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
-                asignadoA === userId ? "bg-emerald-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-              }`}
-            >
-              A mí
-            </button>
-            <button
-              onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
-              className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
-                asignadoA === otroPerfil?.id && otroPerfil ? "bg-purple-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-              }`}
-            >
-              {otroPerfil ? otroPerfil.nombre : "Pareja"}
-            </button>
-            <button
-              onClick={() => setAsignadoA(null)}
-              className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
-                asignadoA === null ? "bg-blue-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-              }`}
-            >
-              Ambos
-            </button>
-          </div>
-
-          {tipo === "evento" && (
-            <div className="flex gap-3 pt-1 flex-wrap">
-              {COLOR_OPTIONS.map(c => (
-                <button
-                  key={c.value}
-                  onClick={() => setColor(c.value)}
-                  aria-label={c.label}
-                  className={`w-9 h-9 rounded-full ${c.cls} transition-all shrink-0 ${
-                    color === c.value ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "opacity-50"
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-
-          {error && <p className="text-red-400 text-xs">{error}</p>}
-
-          <button
-            onClick={guardar}
-            disabled={guardando || !titulo.trim() || !fecha}
-            className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
-          >
-            <CalendarPlus size={16} />
-            {guardando ? "Guardando..." : editandoId ? "Actualizar" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
-          </button>
         </div>
 
         {loading ? (
@@ -416,6 +356,145 @@ export default function CalendarioPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* Botón flotante — mismo patrón que finanzas */}
+        {!modalAbierto && (
+          <button
+            onClick={abrirNuevo}
+            className="fixed bottom-[88px] right-4 w-14 h-14 rounded-full accent-gradient shadow-lg flex items-center justify-center z-40 text-white"
+          >
+            <Plus size={26} />
+          </button>
+        )}
+
+        {/* Bottom sheet: formulario */}
+        {modalAbierto && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
+            <div
+              className={`relative w-full max-w-md surface rounded-t-3xl p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 transition-transform duration-300 ease-out ${
+                hojaVisible ? "translate-y-0" : "translate-y-full"
+              }`}
+            >
+              <div className="flex items-center justify-between sticky top-0 surface pb-1">
+                <p className="text-sm font-semibold">{editandoId ? "Corrigiendo plan" : "Nuevo"}</p>
+                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary transition">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setTipo("evento")}
+                  className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                    tipo === "evento" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                  }`}
+                  style={tipo === "evento" ? { background: "var(--accent)" } : undefined}
+                >
+                  <Calendar size={13} /> Evento
+                </button>
+                <button
+                  onClick={() => setTipo("tarea")}
+                  className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                    tipo === "tarea" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                  }`}
+                  style={tipo === "tarea" ? { background: "var(--accent)" } : undefined}
+                >
+                  <ListChecks size={13} /> Tarea
+                </button>
+              </div>
+
+              <input
+                value={titulo}
+                onChange={e => setTitulo(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && guardar()}
+                placeholder={tipo === "tarea" ? "¿Qué hay que hacer?" : "¿Qué tienen planeado?"}
+                autoFocus
+                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+              />
+
+              <input
+                value={descripcion}
+                onChange={e => setDescripcion(e.target.value)}
+                placeholder="Detalles (opcional) — ej. qué materiales llevar"
+                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
+                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={fecha}
+                  onChange={e => setFecha(e.target.value)}
+                  type="date"
+                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
+                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                />
+                <input
+                  value={hora}
+                  onChange={e => setHora(e.target.value)}
+                  type="time"
+                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
+                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                />
+              </div>
+
+              <p className="text-xs text-muted pt-1">¿A quién le compete?</p>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setAsignadoA(userId)}
+                  className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
+                    asignadoA === userId ? "bg-emerald-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                  }`}
+                >
+                  A mí
+                </button>
+                <button
+                  onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
+                  className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
+                    asignadoA === otroPerfil?.id && otroPerfil ? "bg-purple-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                  }`}
+                >
+                  {otroPerfil ? otroPerfil.nombre : "Pareja"}
+                </button>
+                <button
+                  onClick={() => setAsignadoA(null)}
+                  className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
+                    asignadoA === null ? "bg-blue-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                  }`}
+                >
+                  Ambos
+                </button>
+              </div>
+
+              {tipo === "evento" && (
+                <div className="flex gap-3 pt-1 flex-wrap">
+                  {COLOR_OPTIONS.map(c => (
+                    <button
+                      key={c.value}
+                      onClick={() => setColor(c.value)}
+                      aria-label={c.label}
+                      className={`w-9 h-9 rounded-full ${c.cls} transition-all shrink-0 ${
+                        color === c.value ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "opacity-50"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {error && <p className="text-red-400 text-xs">{error}</p>}
+
+              <button
+                onClick={guardar}
+                disabled={guardando || !titulo.trim() || !fecha}
+                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
+              >
+                <CalendarPlus size={16} />
+                {guardando ? "Guardando..." : editandoId ? "Actualizar" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
+              </button>
+            </div>
+          </div>
         )}
 
       </div>

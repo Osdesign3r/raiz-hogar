@@ -28,12 +28,13 @@ export interface DashboardData {
 }
 
 const MAX_TIMELINE = 3
-const MAX_ATRASADOS_EN_TIMELINE = 2 // tope de vencidos visibles — el resto se revisa en /calendario
+const MAX_ATRASADOS_EN_TIMELINE = 2
 const MAX_ACTIVITY = 3
 
 const hoy = new Date()
 const fechaInicio = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`
 const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().split("T")[0]
+const hoyStr = hoy.toISOString().split("T")[0]
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n)
@@ -58,8 +59,14 @@ export function useDashboard(): DashboardData {
       supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
       supabase.from("perfiles").select("id,nombre"),
       supabase.from("gastos").select("*").eq("visibilidad", "compartido").gte("fecha", fechaInicio).lte("fecha", ultimoDia),
-      // Colchón de 20 — el recorte fino (vencidos vs próximos, tope 3) se hace abajo en JS.
-      supabase.from("eventos").select("*").eq("completado", false).order("fecha", { ascending: true }).limit(20),
+      // tareas pendientes (cualquier fecha) + eventos desde hoy en adelante.
+      // Un evento pasado no es "atrasado" — ya ocurrió, no hay nada que hacer con él.
+      supabase
+        .from("eventos")
+        .select("*")
+        .or(`and(tipo.eq.tarea,completado.eq.false),and(tipo.eq.evento,fecha.gte.${hoyStr})`)
+        .order("fecha", { ascending: true })
+        .limit(20),
       supabase.from("documentos").select("id,nombre,created_at").order("created_at", { ascending: false }).limit(MAX_ACTIVITY),
     ])
 
@@ -76,8 +83,8 @@ export function useDashboard(): DashboardData {
     const b = calcularBalance(perfiles, gastos)
     setBalance(b.acreedor && b.deudor ? `${b.deudor.nombre} debe ${fmt(b.diferencia)} a ${b.acreedor.nombre}` : "En paz")
 
-    /* Mi día: vencidos primero (tope 2) + próximos, total tope 3.
-       Sin este tope, lo atrasado de hace semanas ahogaba lo de hoy. */
+    /* Mi día: vencidos primero (tope 2, solo tareas — un evento no "vence"),
+       luego próximos, total tope 3. */
     const conEstado = eventos.map(e => {
       const evento = new Date(e.fecha + "T12:00:00")
       const ahora = new Date(); ahora.setHours(12, 0, 0, 0)
@@ -94,9 +101,6 @@ export function useDashboard(): DashboardData {
     const proximos = conEstado.filter(e => e.status !== "late").slice(0, MAX_TIMELINE - atrasados.length)
     setTimeline([...atrasados, ...proximos].slice(0, MAX_TIMELINE))
 
-    /* Actividad: gastos + documentos ordenados por fecha real, no concatenados
-       a lo bruto (antes un documento de hace 3 días podía verse "más nuevo"
-       que un gasto de ayer porque solo se pegaban dos listas en orden fijo). */
     const actividades: ActivityItem[] = [
       ...gastos.map(g => ({
         id: `g-${g.id}`,

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { useUser } from "@/hooks/useUser"
 import { useRouter } from "next/navigation"
-import { LogOut, Save, User, Shield, Palette } from "lucide-react"
+import Link from "next/link"
+import { LogOut, Save, User, Shield, Palette, Users, ChevronRight } from "lucide-react"
 import { ACCENT_COLORS, getAccentByValue, type AccentColor } from "@/lib/colors"
 
 type Perfil = { id: string; nombre: string; email: string; avatar_url: string | null; accent_color: string }
@@ -94,6 +95,20 @@ export default function ConfiguracionPage() {
             <p className="text-sm text-secondary truncate">{perfil?.email}</p>
           </div>
         </div>
+
+        {/* Miembros del hogar — antes era /familia, ruta huérfana sin acceso en el nav */}
+        <Link href="/familia">
+          <div className="surface border-subtle rounded-2xl p-4 mb-3 flex items-center gap-4 active:opacity-70 transition">
+            <div className="w-11 h-11 rounded-xl bg-[var(--surface-2)] flex items-center justify-center shrink-0">
+              <Users size={18} style={{ color: "var(--accent)" }} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-sm">Miembros del hogar</p>
+              <p className="text-xs text-secondary">Personas y mascotas que conviven contigo</p>
+            </div>
+            <ChevronRight size={16} className="text-muted shrink-0" />
+          </div>
+        </Link>
 
         {/* Nombre */}
         <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
