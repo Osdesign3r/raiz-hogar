@@ -1,4 +1,3 @@
-// app/documentos/page.tsx
 "use client"
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
@@ -8,6 +7,7 @@ import {
   Upload, Trash2, Pencil, X, Search, Lock, Users,
   AlertTriangle, Clock, ExternalLink, Plus, FileText,
 } from "lucide-react"
+import ConfirmDialog from "@/components/ConfirmDialog"
 
 const CATEGORIAS: DocumentoCategoria[] = [
   "Familia", "Salud", "Educacion", "Finanzas", "Legal", "Hogar", "Vehiculos", "Mascotas", "Otros",
@@ -39,6 +39,7 @@ export default function DocumentosPage() {
 
   const [modalAbierto, setModalAbierto] = useState(false)
   const [hojaVisible,  setHojaVisible]  = useState(false)
+  const [aEliminar,    setAEliminar]    = useState<Documento | null>(null)
 
   const [editandoId,    setEditandoId]    = useState<string | null>(null)
   const [editandoAjeno, setEditandoAjeno] = useState(false)
@@ -194,14 +195,14 @@ export default function DocumentosPage() {
     }
   }
 
-  const eliminarDocumento = async (d: Documento) => {
-    if (!confirm(`¿Eliminar "${d.nombre}"? Esta acción no se puede deshacer.`)) return
+  const eliminarConfirmado = async (d: Documento) => {
     const { error: err } = await supabase.from("documentos").delete().eq("id", d.id)
     if (!err) {
       await supabase.storage.from("documentos").remove([d.archivo_url])
       setDocumentos(prev => prev.filter(x => x.id !== d.id))
       if (editandoId === d.id) cerrarModal()
     }
+    setAEliminar(null)
   }
 
   const verArchivo = async (d: Documento) => {
@@ -211,8 +212,6 @@ export default function DocumentosPage() {
     if (err || !data) { setError("No se pudo abrir el archivo."); return }
     window.open(data.signedUrl, "_blank")
   }
-
-  // ── Listas derivadas ────────────────────────────────────────────────────
 
   const vencidos = useMemo(
     () => [...documentos]
@@ -305,7 +304,7 @@ export default function DocumentosPage() {
           </button>
         )}
         {d.created_by === userId && (
-          <button onClick={() => eliminarDocumento(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition">
+          <button onClick={() => setAEliminar(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition">
             <Trash2 size={15} />
           </button>
         )}
@@ -319,7 +318,6 @@ export default function DocumentosPage() {
 
         <h1 className="text-2xl font-bold mb-4">Documentos</h1>
 
-        {/* Chips de info — mismo patrón que calendario */}
         <div className="grid grid-cols-3 gap-2 mb-6">
           <div className={`rounded-xl p-3 ${vencidos.length > 0 ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"}`}>
             <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><AlertTriangle size={11} /> Vencidos</p>
@@ -407,7 +405,6 @@ export default function DocumentosPage() {
           </>
         )}
 
-        {/* Botón flotante */}
         {!modalAbierto && (
           <button
             onClick={abrirNuevo}
@@ -417,7 +414,6 @@ export default function DocumentosPage() {
           </button>
         )}
 
-        {/* Bottom sheet: formulario */}
         {modalAbierto && (
           <div className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
@@ -545,6 +541,14 @@ export default function DocumentosPage() {
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={!!aEliminar}
+          title="¿Eliminar documento?"
+          message={aEliminar ? `Se eliminará "${aEliminar.nombre}" permanentemente, junto con el archivo.` : ""}
+          onCancel={() => setAEliminar(null)}
+          onConfirm={() => aEliminar && eliminarConfirmado(aEliminar)}
+        />
 
       </div>
     </main>

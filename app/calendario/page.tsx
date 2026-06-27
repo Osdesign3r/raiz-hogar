@@ -7,7 +7,7 @@ import {
   CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil, X, Plus, Clock3,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
-
+import ConfirmDialog from "@/components/ConfirmDialog"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -45,6 +45,7 @@ export default function CalendarioPage() {
 
   const [modalAbierto, setModalAbierto] = useState(false)
   const [hojaVisible,  setHojaVisible]  = useState(false)
+  const [aEliminar,    setAEliminar]    = useState<Evento | null>(null)
 
   const [titulo,      setTitulo]      = useState("")
   const [fecha,        setFecha]       = useState(hoy())
@@ -178,13 +179,13 @@ export default function CalendarioPage() {
     setGuardando(false)
   }
 
-  const eliminar = async (id: string) => {
-    if (!confirm("¿Eliminar este elemento?")) return
-    const { error: err } = await supabase.from("eventos").delete().eq("id", id)
+  const eliminarConfirmado = async (e: Evento) => {
+    const { error: err } = await supabase.from("eventos").delete().eq("id", e.id)
     if (!err) {
-      setEventos(prev => prev.filter(e => e.id !== id))
-      if (editandoId === id) cerrarModal()
+      setEventos(prev => prev.filter(ev => ev.id !== e.id))
+      if (editandoId === e.id) cerrarModal()
     }
+    setAEliminar(null)
   }
 
   const marcarCompletado = async (e: Evento) => {
@@ -196,7 +197,6 @@ export default function CalendarioPage() {
       .eq("id", e.id)
     if (!err) {
       setEventos(prev => prev.map(ev => ev.id === e.id ? { ...ev, completado, completado_at } : ev))
-      // Solo notifica al completar, no al des-marcar — evita ruido de toggles accidentales
       if (completado && otroPerfil) {
         await createNotification(
           otroPerfil.id,
@@ -225,7 +225,6 @@ export default function CalendarioPage() {
     )
   }, [eventos])
 
-  // Chips de info — lo que antes había que inferir mirando toda la lista
   const hoyCount = useMemo(
     () => eventos.filter(e => e.fecha === hoy() && !(e.tipo === "tarea" && e.completado)).length,
     [eventos]
@@ -282,7 +281,7 @@ export default function CalendarioPage() {
           <Pencil size={16} />
         </button>
         <button
-          onClick={() => eliminar(e.id)}
+          onClick={() => setAEliminar(e)}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition"
         >
           <Trash2 size={16} />
@@ -298,7 +297,6 @@ export default function CalendarioPage() {
         <h1 className="text-2xl font-bold mb-1">Agenda Familiar</h1>
         <p className="text-sm text-muted mb-4">Lo que necesita atención en casa</p>
 
-        {/* Chips de info — reemplaza al formulario que antes ocupaba media pantalla */}
         <div className="grid grid-cols-3 gap-2 mb-6">
           <div className={`rounded-xl p-3 ${atrasados.length > 0 ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"}`}>
             <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><AlertTriangle size={11} /> Atrasado</p>
@@ -359,7 +357,6 @@ export default function CalendarioPage() {
           </>
         )}
 
-        {/* Botón flotante — mismo patrón que finanzas */}
         {!modalAbierto && (
           <button
             onClick={abrirNuevo}
@@ -369,7 +366,6 @@ export default function CalendarioPage() {
           </button>
         )}
 
-        {/* Bottom sheet: formulario */}
         {modalAbierto && (
           <div className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
@@ -461,7 +457,7 @@ export default function CalendarioPage() {
                 </button>
                 <button
                   onClick={() => setAsignadoA(null)}
-                  className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
+                  className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
                     asignadoA === null ? "bg-blue-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
                 >
@@ -497,6 +493,13 @@ export default function CalendarioPage() {
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={!!aEliminar}
+          message="¿Eliminar este elemento? Esta acción no se puede deshacer."
+          onCancel={() => setAEliminar(null)}
+          onConfirm={() => aEliminar && eliminarConfirmado(aEliminar)}
+        />
 
       </div>
     </main>

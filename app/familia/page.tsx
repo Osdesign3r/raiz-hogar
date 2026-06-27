@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Miembro } from "@/lib/types"
-import { UserPlus, Trash2, Pencil, User, X, Plus } from "lucide-react"
+import { UserPlus, Trash2, Pencil, X, Plus, ChevronLeft } from "lucide-react"
 import Link from "next/link"
-import { ChevronLeft } from "lucide-react"
+import ConfirmDialog from "@/components/ConfirmDialog"
 
 const ROL_OPTIONS = ["Padre", "Madre", "Hijo", "Hija", "Mascota", "Otro"]
 
@@ -21,6 +21,7 @@ export default function FamiliaPage() {
 
   const [modalAbierto, setModalAbierto] = useState(false)
   const [hojaVisible,  setHojaVisible]  = useState(false)
+  const [aEliminar,    setAEliminar]    = useState<Miembro | null>(null)
 
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [nombre,     setNombre]     = useState("")
@@ -90,15 +91,15 @@ export default function FamiliaPage() {
     setGuardando(false)
   }
 
-  const eliminar = async (id: string) => {
-    if (!confirm("¿Eliminar este miembro? Si tiene documentos asociados, revísalos antes — pueden quedar huérfanos.")) return
-    const { error: err } = await supabase.from("miembros").delete().eq("id", id)
+  const eliminarConfirmado = async (m: Miembro) => {
+    const { error: err } = await supabase.from("miembros").delete().eq("id", m.id)
     if (!err) {
-      setMiembros(prev => prev.filter(m => m.id !== id))
-      if (editandoId === id) cerrarModal()
+      setMiembros(prev => prev.filter(x => x.id !== m.id))
+      if (editandoId === m.id) cerrarModal()
     } else {
-      setError("No se pudo eliminar — probablemente tiene documentos vinculados.")
+      setError("No se pudo eliminar el miembro.")
     }
+    setAEliminar(null)
   }
 
   return (
@@ -147,7 +148,7 @@ export default function FamiliaPage() {
                     <Pencil size={16} />
                   </button>
                   <button
-                    onClick={() => eliminar(m.id)}
+                    onClick={() => setAEliminar(m)}
                     className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition"
                   >
                     <Trash2 size={16} />
@@ -158,7 +159,6 @@ export default function FamiliaPage() {
           </div>
         )}
 
-        {/* Botón flotante */}
         {!modalAbierto && (
           <button
             onClick={abrirNuevo}
@@ -168,7 +168,6 @@ export default function FamiliaPage() {
           </button>
         )}
 
-        {/* Bottom sheet: formulario */}
         {modalAbierto && (
           <div className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
@@ -222,6 +221,14 @@ export default function FamiliaPage() {
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={!!aEliminar}
+          title="¿Eliminar miembro?"
+          message={aEliminar ? `Se eliminará a "${aEliminar.nombre}". Sus documentos no se borran, solo quedan sin asignar.` : ""}
+          onCancel={() => setAEliminar(null)}
+          onConfirm={() => aEliminar && eliminarConfirmado(aEliminar)}
+        />
 
       </div>
     </main>
