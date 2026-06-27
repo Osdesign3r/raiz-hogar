@@ -8,8 +8,8 @@ import {
   ChevronDown, Flame, CalendarDays,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
-import { calcularBalance }
-from "@/lib/finanzas"
+import { calcularBalance } from "@/lib/finanzas"
+import ConfirmDialog from "@/components/ConfirmDialog"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -31,6 +31,7 @@ const nombreMes = (mes: string) => {
 
 const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
 
+type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
 
 export default function FinanzasPage() {
@@ -49,6 +50,7 @@ export default function FinanzasPage() {
   const [editandoId,      setEditandoId]      = useState<string | null>(null)
   const [editandoAjeno,   setEditandoAjeno]   = useState(false)
   const [filtro,          setFiltro]          = useState<"todos" | "compartido" | "privado">("todos")
+  const [aEliminar,       setAEliminar]       = useState<Gasto | null>(null)
 
   const [concepto,    setConcepto]    = useState("")
   const [valor,       setValor]       = useState("")
@@ -58,8 +60,6 @@ export default function FinanzasPage() {
   const [categoriaId, setCategoriaId] = useState("")
   const [fecha,       setFecha]       = useState(hoy())
   const [mesActivo,   setMesActivo]   = useState(() => hoy().slice(0, 7))
-
-  // ── Carga de datos ────────────────────────────────────────────────────────
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
@@ -127,8 +127,6 @@ export default function FinanzasPage() {
     [perfiles, esYo]
   )
 
-  // ── Edición / modal ──────────────────────────────────────────────────────
-
   const cancelarEdicion = useCallback(() => {
     setEditandoId(null)
     setEditandoAjeno(false)
@@ -173,8 +171,6 @@ export default function FinanzasPage() {
     cancelarEdicion()
   }
 
-  // ── CRUD ─────────────────────────────────────────────────────────────────
-
   const guardarGasto = async () => {
     if (!concepto.trim() || !valor || Number(valor) <= 0) return
     if (visibilidad === "compartido" && !pagadoPor) return
@@ -192,52 +188,22 @@ export default function FinanzasPage() {
       notas:               null,
     }
 
-   const esNuevo = !editandoId
+    const esNuevo = !editandoId
 
+    const res = editandoId
+      ? await supabase.from("gastos").update(payload).eq("id", editandoId)
+      : await supabase.from("gastos").insert(payload)
 
-const res = editandoId
-  ? await supabase
-      .from("gastos")
-      .update(payload)
-      .eq("id", editandoId)
+    if (esNuevo && visibilidad === "compartido" && otroPerfil) {
+      await createNotification(
+        otroPerfil.id,
+        "gasto",
+        "Nuevo gasto",
+        `${nombreSujeto(userId)} agregó ${fmt(Number(valor))}`,
+        { concepto, valor: Number(valor) }
+      )
+    }
 
-  : await supabase
-      .from("gastos")
-      .insert(payload)
-
-      
-if (
-
-esNuevo &&
-visibilidad==="compartido" &&
-otroPerfil
-
-){
-
-await createNotification(
-
-otroPerfil.id,
-
-"gasto",
-
-"Nuevo gasto",
-
-// nombreSujeto(userId) decía "Tú" siempre — correcto para lo que se
-// renderiza en TU pantalla, pero este texto lo lee tu pareja, no vos.
-// Necesita tu nombre real, no tu pronombre.
-`${perfiles.find(p => p.id === userId)?.nombre ?? "Alguien"} agregó ${fmt(Number(valor))}`,
-
-{
-
-concepto,
-
-valor:Number(valor)
-
-}
-
-)
-
-}
     if (res.error) {
       setError("No se pudo guardar el gasto.")
     } else {
@@ -248,13 +214,13 @@ valor:Number(valor)
     setGuardando(false)
   }
 
-  const eliminarGasto = async (id: string) => {
-    if (!confirm("¿Eliminar este gasto?")) return
-    const { error: err } = await supabase.from("gastos").delete().eq("id", id)
+  const eliminarGastoConfirmado = async (g: Gasto) => {
+    const { error: err } = await supabase.from("gastos").delete().eq("id", g.id)
     if (!err) {
-      setGastos(prev => prev.filter(g => g.id !== id))
-      if (editandoId === id) cerrarModal()
+      setGastos(prev => prev.filter(x => x.id !== g.id))
+      if (editandoId === g.id) cerrarModal()
     }
+    setAEliminar(null)
   }
 
   // ── Cálculos: balance ────────────────────────────────────────────────────
@@ -267,16 +233,34 @@ valor:Number(valor)
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
-  const balanceHogar = useMemo(
-    () => calcularBalance(perfiles, compartidos),
-    [perfiles, compartidos]
-  )
-  const resumenPorPersona = balanceHogar.resumen
-  const acreedor = balanceHogar.acreedor
-  const deudor   = balanceHogar.deudor
+  const resumenPorPersona = useMemo((): ResumenPersona[] => {
+    const pagado: Record<string, number> = {}
+    const resp:   Record<string, number> = {}
+    perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
+
+    compartidos.forEach(g => {
+      const v   = Number(g.valor) || 0
+      const pct = g.porcentaje_pagador ?? 50
+      if (!g.pagado_por || !(g.pagado_por in pagado)) return
+      pagado[g.pagado_por] += v
+      resp[g.pagado_por] += v * pct / 100
+      const otro = perfiles.find(p => p.id !== g.pagado_por)
+      if (otro) resp[otro.id] += v * (100 - pct) / 100
+    })
+
+    return perfiles.map(p => ({
+      ...p,
+      pagado:          pagado[p.id] ?? 0,
+      responsabilidad: resp[p.id]   ?? 0,
+      saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
+    }))
+  }, [compartidos, perfiles])
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
+
+  const acreedor = resumenPorPersona.find(p => p.saldo >  0.5)
+  const deudor   = resumenPorPersona.find(p => p.saldo < -0.5)
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
@@ -342,43 +326,39 @@ valor:Number(valor)
 
   const maxBarra = Math.max(1, ...categoriasComparadas.map(c => Math.max(c.actual, c.anterior)))
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
-    <main className="min-h-screen p-4 pb-28">
+    <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
       <div className="max-w-md mx-auto">
 
-        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Finanzas</h1>
-          <div className="flex items-center gap-1 bg-[var(--surface-2)] rounded-lg px-2 py-1">
-            <TrendingUp size={14} className="text-muted" />
+          <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-2 py-1">
+            <TrendingUp size={14} className="text-slate-400" />
             <input
               type="month"
               value={mesActivo}
               onChange={e => setMesActivo(e.target.value)}
-              className="bg-transparent text-sm text-secondary outline-none"
+              className="bg-transparent text-sm text-slate-300 outline-none"
             />
           </div>
         </div>
 
         {loading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-2xl h-24 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-2xl h-24 animate-pulse" />)}
           </div>
         ) : (
           <>
-            {/* ── Lo primero que se ve: el balance ──────────────────────── */}
-            <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
+            <div className="bg-slate-900 rounded-2xl p-4 mb-3 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-muted font-medium uppercase tracking-wide flex items-center gap-1">
+                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide flex items-center gap-1">
                   <Users size={11} /> Gasto compartido de {nombreMes(mesActivo)}
                 </p>
                 {deltaTotalPct !== null && (
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
                     deltaTotalPct > 0 ? "bg-red-500/15 text-red-400" :
                     deltaTotalPct < 0 ? "bg-green-500/15 text-green-400" :
-                                        "bg-[var(--surface-2)] text-muted"
+                                        "bg-slate-700 text-slate-400"
                   }`}>
                     {deltaTotalPct > 0 ? <TrendingUp size={11} /> : deltaTotalPct < 0 ? <TrendingDown size={11} /> : null}
                     {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
@@ -388,14 +368,14 @@ valor:Number(valor)
               <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
 
               {resumenPorPersona.map(p => (
-                <div key={p.id} className="bg-[var(--surface-2)] rounded-xl p-3">
+                <div key={p.id} className="bg-slate-800 rounded-xl p-3">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-medium">{esYo(p.id) ? `Tú (${p.nombre})` : p.nombre}</p>
                     <span
                       className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                         p.saldo > 0.5  ? "bg-green-500/15 text-green-400" :
                         p.saldo < -0.5 ? "bg-red-500/15 text-red-400"    :
-                                         "bg-[var(--surface-2)] text-muted"
+                                         "bg-slate-700 text-slate-400"
                       }`}
                     >
                       {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}`  :
@@ -403,7 +383,7 @@ valor:Number(valor)
                                         "En paz"}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-muted">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
                     <div><p>Pagó</p><p className="text-white font-medium text-sm">{fmt(p.pagado)}</p></div>
                     <div><p>Le correspondía</p><p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p></div>
                   </div>
@@ -418,33 +398,31 @@ valor:Number(valor)
                   </p>
                 </div>
               ) : totalCompartido > 0 ? (
-                <p className="text-xs text-muted text-center py-1">✓ Están en paz</p>
+                <p className="text-xs text-slate-500 text-center py-1">✓ Están en paz</p>
               ) : null}
             </div>
 
-            {/* ── Stats rápidas ──────────────────────────────────────────── */}
             {totalCompartido > 0 && (
               <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="surface border-subtle rounded-xl p-3">
-                  <p className="text-xs text-muted flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
                   <p className="font-bold text-sm">{fmt(promedioDiario)}</p>
                 </div>
-                <div className="surface border-subtle rounded-xl p-3">
-                  <p className="text-xs text-muted flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
                   <p className="font-bold text-sm truncate">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
-                  {gastoMasGrande && <p className="text-[11px] text-muted truncate">{gastoMasGrande.concepto}</p>}
+                  {gastoMasGrande && <p className="text-[11px] text-slate-500 truncate">{gastoMasGrande.concepto}</p>}
                 </div>
               </div>
             )}
 
             {totalPersonal > 0 && (
-              <div className="surface border-subtle rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
-                <p className="text-xs text-muted flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
+              <div className="bg-slate-900 rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
+                <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
                 <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
               </div>
             )}
 
-            {/* ── Insights — lo que cambió, sin tener que ir a buscarlo ──── */}
             {insights.length > 0 && (
               <div className="space-y-2 mb-3">
                 {insights.map(i => (
@@ -455,7 +433,7 @@ valor:Number(valor)
                     }`}
                   >
                     <span className="text-lg shrink-0">{i.emoji}</span>
-                    <p className="text-sm text-secondary leading-snug">
+                    <p className="text-sm text-slate-300 leading-snug">
                       Gastaste{" "}
                       <span className={`font-semibold ${i.delta > 0 ? "text-red-400" : "text-green-400"}`}>
                         {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
@@ -467,19 +445,18 @@ valor:Number(valor)
               </div>
             )}
 
-            {/* ── Desglose por categoría — colapsado por defecto ─────────── */}
             {categoriasComparadas.length > 0 && (
-              <div className="surface border-subtle rounded-2xl mb-4 overflow-hidden">
+              <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
                 <button
                   onClick={() => setMostrarDesglose(v => !v)}
                   className="w-full flex items-center justify-between p-4"
                 >
-                  <p className="text-xs text-muted uppercase tracking-wide">Desglose por categoría</p>
-                  <ChevronDown size={16} className={`text-muted transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
+                  <p className="text-xs text-slate-400 uppercase tracking-wide">Desglose por categoría</p>
+                  <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
                 </button>
                 {mostrarDesglose && (
                   <div className="px-4 pb-4 space-y-3">
-                    <p className="text-[11px] text-muted flex items-center gap-1 -mt-1">
+                    <p className="text-[11px] text-slate-500 flex items-center gap-1 -mt-1">
                       <span className="w-2 h-0.5 bg-white/60 inline-block" /> mes anterior
                     </p>
                     {categoriasComparadas.map(c => {
@@ -488,11 +465,11 @@ valor:Number(valor)
                       return (
                         <div key={c.id}>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-secondary">{c.emoji} {c.nombre}</span>
+                            <span className="text-slate-300">{c.emoji} {c.nombre}</span>
                             <span className="font-medium">{fmt(c.actual)}</span>
                           </div>
-                          <div className="relative h-2.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
-                            <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{ width: `${pctActual}%`, background: "var(--accent)" }} />
+                          <div className="relative h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 bg-blue-600 rounded-full transition-all" style={{ width: `${pctActual}%` }} />
                             {c.anterior > 0 && (
                               <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${Math.min(pctAnterior, 99.5)}%` }} />
                             )}
@@ -505,18 +482,16 @@ valor:Number(valor)
               </div>
             )}
 
-            {/* ── Filtros + lista de movimientos ─────────────────────────── */}
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-muted uppercase tracking-wide">Movimientos</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Movimientos</p>
               <div className="flex gap-1.5">
                 {(["todos", "compartido", "privado"] as const).map(f => (
                   <button
                     key={f}
                     onClick={() => setFiltro(f)}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
-                      filtro === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                      filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                     }`}
-                    style={filtro === f ? { background: "var(--accent)" } : undefined}
                   >
                     {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
                   </button>
@@ -529,7 +504,7 @@ valor:Number(valor)
             )}
 
             {gastosFiltrados.length === 0 ? (
-              <div className="text-center py-12 text-muted">
+              <div className="text-center py-12 text-slate-500">
                 <p className="text-3xl mb-2">💸</p>
                 <p className="text-sm">No hay gastos este mes</p>
               </div>
@@ -539,15 +514,14 @@ valor:Number(valor)
                   <div
                     key={g.id}
                     className={`rounded-xl p-4 flex items-center justify-between group transition ${
-                      g.id === editandoId ? "surface border-subtle ring-1" : "surface border-subtle"
+                      g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
                     }`}
-                    style={g.id === editandoId ? { "--tw-ring-color": "var(--accent)" } as React.CSSProperties : undefined}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{g.concepto}</p>
-                        <p className="text-xs text-muted flex items-center gap-1">
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
                           {g.fecha} ·{" "}
                           {g.visibilidad === "privado" ? (
                             <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
@@ -562,10 +536,10 @@ valor:Number(valor)
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
-                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:bg-[var(--surface-2)] transition">
+                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition">
                         <Pencil size={16} />
                       </button>
-                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:bg-[var(--surface-2)] transition">
+                      <button onClick={() => setAEliminar(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -576,41 +550,29 @@ valor:Number(valor)
           </>
         )}
 
-        {/* ── Botón flotante ───────────────────────────────────────────── */}
-{!modalAbierto && (
-<button
-  onClick={abrirNuevo}
-  className="
-    fixed
-    bottom-[88px]
-    right-4
-    w-14 h-14
-    rounded-full
-    accent-gradient
-    shadow-lg
-    flex items-center justify-center
-    z-40
-    text-white
-  "
->
-  <Plus size={26}/>
-</button>
-)}
-        {/* ── Bottom sheet: formulario ─────────────────────────────────── */}
+        {!modalAbierto && (
+          <button
+            onClick={abrirNuevo}
+            className="fixed bottom-[88px] right-4 w-14 h-14 rounded-full bg-blue-600 shadow-lg flex items-center justify-center z-40"
+          >
+            <Plus size={26}/>
+          </button>
+        )}
+
         {modalAbierto && (
           <div className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
             <div
               className={`relative w-full 
-                max-w-md surface border-subtle rounded-t-3xl 
+                max-w-md bg-slate-900 rounded-t-3xl 
                 p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 
                 transition-transform duration-300 ease-out ${
                 hojaVisible ? "translate-y-0" : "translate-y-full"
               }`}
             >
-              <div className="flex items-center justify-between sticky top-0 surface border-subtle pb-1">
+              <div className="flex items-center justify-between sticky top-0 bg-slate-900 pb-1">
                 <p className="text-sm font-semibold">{editandoId ? "Editando gasto" : "Nuevo gasto"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary hover:bg-[var(--surface-2)] transition">
+                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition">
                   <X size={18} />
                 </button>
               </div>
@@ -619,9 +581,8 @@ valor:Number(valor)
                 <button
                   onClick={() => setVisibilidad("compartido")}
                   className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    visibilidad === "compartido" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
-                  style={visibilidad === "compartido" ? { background: "var(--accent)" } : undefined}
                 >
                   <Users size={13} /> Compartido
                 </button>
@@ -630,11 +591,10 @@ valor:Number(valor)
                   disabled={editandoAjeno}
                   title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
                   className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    editandoAjeno          ? "bg-[var(--surface-2)]/40 text-muted cursor-not-allowed" :
-                    visibilidad==="privado"? "text-white" :
-                                             "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    editandoAjeno          ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
+                    visibilidad==="privado"? "bg-blue-600 text-white" :
+                                             "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
-                  style={!editandoAjeno && visibilidad === "privado" ? { background: "var(--accent)" } : undefined}
                 >
                   <Lock size={13} /> Personal
                 </button>
@@ -646,8 +606,7 @@ valor:Number(valor)
                 onKeyDown={e => e.key === "Enter" && guardarGasto()}
                 placeholder="¿En qué gastaste?"
                 autoFocus
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
               />
 
               <div className="grid grid-cols-2 gap-2">
@@ -657,23 +616,20 @@ valor:Number(valor)
                   placeholder="Valor"
                   type="number"
                   min="0"
-                  className="p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                  className="p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <input
                   value={fecha}
                   onChange={e => setFecha(e.target.value)}
                   type="date"
-                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                  className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <select
                 value={categoriaId}
                 onChange={e => setCategoriaId(e.target.value)}
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">Sin categoría</option>
                 {categorias.map(c => (
@@ -682,24 +638,23 @@ valor:Number(valor)
               </select>
 
               {visibilidad === "compartido" && (
-                <div className="space-y-2 pt-2 border-t border-white/10">
-                  <p className="text-xs text-muted">¿Quién puso el dinero?</p>
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <p className="text-xs text-slate-500">¿Quién puso el dinero?</p>
                   <div className="grid grid-cols-2 gap-2">
                     {perfiles.map(p => (
                       <button
                         key={p.id}
                         onClick={() => setPagadoPor(p.id)}
                         className={`p-2 rounded-lg text-xs font-medium truncate transition ${
-                          pagadoPor === p.id ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                          pagadoPor === p.id ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                         }`}
-                        style={pagadoPor === p.id ? { background: "var(--accent)" } : undefined}
                       >
                         {esYo(p.id) ? `Yo (${p.nombre})` : p.nombre}
                       </button>
                     ))}
                   </div>
 
-                  <p className="text-xs text-muted">
+                  <p className="text-xs text-slate-500">
                     ¿Cómo se divide? — a quien pagó le corresponde el{" "}
                     <span className="text-white font-medium">{pctPagador}%</span>
                   </p>
@@ -713,9 +668,8 @@ valor:Number(valor)
                         key={opt.v}
                         onClick={() => setPctPagador(opt.v)}
                         className={`p-2 rounded-lg text-[11px] leading-tight font-medium transition ${
-                          pctPagador === opt.v ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                          pctPagador === opt.v ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                         }`}
-                        style={pctPagador === opt.v ? { background: "var(--accent)" } : undefined}
                       >
                         {opt.label}
                       </button>
@@ -723,7 +677,7 @@ valor:Number(valor)
                   </div>
 
                   {valor && Number(valor) > 0 && pagadoPor && (
-                    <div className="bg-[var(--surface-2)] rounded-lg px-3 py-2 text-xs text-muted">
+                    <div className="bg-slate-800 rounded-lg px-3 py-2 text-xs text-slate-400">
                       {pctPagador === 100
                         ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
                         : pctPagador === 0
@@ -738,7 +692,7 @@ valor:Number(valor)
               <button
                 onClick={guardarGasto}
                 disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
-                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
               >
                 <Plus size={16} />
                 {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}
@@ -746,6 +700,13 @@ valor:Number(valor)
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={!!aEliminar}
+          message="¿Eliminar este gasto? Esta acción no se puede deshacer."
+          onCancel={() => setAEliminar(null)}
+          onConfirm={() => aEliminar && eliminarGastoConfirmado(aEliminar)}
+        />
 
       </div>
     </main>
