@@ -59,15 +59,13 @@ export function useDashboard(): DashboardData {
       supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
       supabase.from("perfiles").select("id,nombre"),
       supabase.from("gastos").select("*").eq("visibilidad", "compartido").gte("fecha", fechaInicio).lte("fecha", ultimoDia),
-      // tareas pendientes (cualquier fecha) + eventos desde hoy en adelante.
-      // Un evento pasado no es "atrasado" — ya ocurrió, no hay nada que hacer con él.
       supabase
         .from("eventos")
         .select("*")
         .or(`and(tipo.eq.tarea,completado.eq.false),and(tipo.eq.evento,fecha.gte.${hoyStr})`)
         .order("fecha", { ascending: true })
         .limit(20),
-      supabase.from("documentos").select("id,nombre,created_at").order("created_at", { ascending: false }).limit(MAX_ACTIVITY),
+      supabase.from("documentos").select("id,nombre,created_at,created_by").order("created_at", { ascending: false }).limit(MAX_ACTIVITY),
     ])
 
     const perfiles = perfilesRes.data ?? []
@@ -77,14 +75,33 @@ export function useDashboard(): DashboardData {
 
     setNombre(perfilRes.data?.nombre ?? "")
 
+    const nombrePorId = new Map(perfiles.map(p => [p.id, p.nombre]))
+    const nombreDe = (id: string | null) => {
+      if (!id) return "Alguien"
+      if (id === session.user.id) return "Tú"
+      return nombrePorId.get(id) ?? "Tu pareja"
+    }
+
     const total = gastos.reduce((acc, g) => acc + Number(g.valor), 0)
     setTotalMes(total)
 
+    // Mismo balance, contado distinto según quién lo lee — esto es lo que
+    // lo separa de un estado de cuenta. "X le debe a Y" es neutral en el
+    // papel pero suena a cobranza cuando lo lees en tu propia pantalla.
     const b = calcularBalance(perfiles, gastos)
-    setBalance(b.acreedor && b.deudor ? `${b.deudor.nombre} debe ${fmt(b.diferencia)} a ${b.acreedor.nombre}` : "En paz")
+    if (b.acreedor && b.deudor) {
+      const monto = fmt(b.diferencia)
+      if (b.acreedor.id === session.user.id) {
+        setBalance(`Vas ${monto} adelante este mes`)
+      } else if (b.deudor.id === session.user.id) {
+        setBalance(`Te faltan ${monto} para emparejar`)
+      } else {
+        setBalance(`Faltan ${monto} para emparejar`)
+      }
+    } else {
+      setBalance("Van parejos 🤝")
+    }
 
-    /* Mi día: vencidos primero (tope 2, solo tareas — un evento no "vence"),
-       luego próximos, total tope 3. */
     const conEstado = eventos.map(e => {
       const evento = new Date(e.fecha + "T12:00:00")
       const ahora = new Date(); ahora.setHours(12, 0, 0, 0)
@@ -104,13 +121,13 @@ export function useDashboard(): DashboardData {
     const actividades: ActivityItem[] = [
       ...gastos.map(g => ({
         id: `g-${g.id}`,
-        message: `💸 ${g.concepto}`,
+        message: `💸 ${nombreDe(g.pagado_por)}: ${g.concepto}`,
         ts: new Date(g.created_at).getTime(),
         time: new Date(g.created_at).toLocaleDateString("es-CO"),
       })),
       ...documentos.map(d => ({
         id: `d-${d.id}`,
-        message: `📄 ${d.nombre}`,
+        message: `📄 ${nombreDe(d.created_by)}: ${d.nombre}`,
         ts: new Date(d.created_at).getTime(),
         time: new Date(d.created_at).toLocaleDateString("es-CO"),
       })),

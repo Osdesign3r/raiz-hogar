@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase"
 import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad } from "@/lib/types"
 import {
   Trash2, Plus, TrendingUp, TrendingDown, Lock, Users, Pencil, X,
-  ChevronDown, Flame, CalendarDays,
+  ChevronDown, Flame, CalendarDays, Tag,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
 import { calcularBalance } from "@/lib/finanzas"
@@ -30,6 +30,8 @@ const nombreMes = (mes: string) => {
 }
 
 const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
+
+const NUEVA_CATEGORIA = "__nueva__"
 
 type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
@@ -60,6 +62,14 @@ export default function FinanzasPage() {
   const [categoriaId, setCategoriaId] = useState("")
   const [fecha,       setFecha]       = useState(hoy())
   const [mesActivo,   setMesActivo]   = useState(() => hoy().slice(0, 7))
+
+  // ── Categoría personalizada (creación inline) ──────────────────────────
+  const [creandoCategoria, setCreandoCategoria] = useState(false)
+  const [nuevaCatNombre,   setNuevaCatNombre]   = useState("")
+  const [nuevaCatEmoji,    setNuevaCatEmoji]    = useState("🏷️")
+  const [creandoCatLoad,   setCreandoCatLoad]   = useState(false)
+
+  // ── Carga de datos ────────────────────────────────────────────────────────
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
@@ -126,6 +136,14 @@ export default function FinanzasPage() {
     (id: string | null) => esYo(id) ? "tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
+  // Nombre real, no relativo — para texto que va a leer LA OTRA persona
+  // (notificaciones). "Tú" solo tiene sentido en tu propia pantalla.
+  const miNombre = useMemo(
+    () => perfiles.find(p => p.id === userId)?.nombre ?? "Tu pareja",
+    [perfiles, userId]
+  )
+
+  // ── Edición / modal ──────────────────────────────────────────────────────
 
   const cancelarEdicion = useCallback(() => {
     setEditandoId(null)
@@ -136,6 +154,9 @@ export default function FinanzasPage() {
     setPctPagador(50)
     setCategoriaId("")
     setFecha(hoy())
+    setCreandoCategoria(false)
+    setNuevaCatNombre("")
+    setNuevaCatEmoji("🏷️")
     if (userId) setPagadoPor(userId)
   }, [userId])
 
@@ -171,6 +192,41 @@ export default function FinanzasPage() {
     cancelarEdicion()
   }
 
+  // ── Categoría personalizada ──────────────────────────────────────────────
+
+  const onCategoriaSelect = (value: string) => {
+    if (value === NUEVA_CATEGORIA) {
+      setCreandoCategoria(true)
+      return
+    }
+    setCategoriaId(value)
+  }
+
+  const crearCategoria = async () => {
+    if (!nuevaCatNombre.trim()) return
+    setCreandoCatLoad(true)
+    setError(null)
+
+    const { data, error: err } = await supabase
+      .from("categorias")
+      .insert({ nombre: nuevaCatNombre.trim(), emoji: nuevaCatEmoji.trim() || "🏷️" })
+      .select()
+      .single()
+
+    if (err || !data) {
+      setError("No se pudo crear la categoría.")
+    } else {
+      setCategorias(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      setCategoriaId(data.id)
+      setCreandoCategoria(false)
+      setNuevaCatNombre("")
+      setNuevaCatEmoji("🏷️")
+    }
+    setCreandoCatLoad(false)
+  }
+
+  // ── CRUD ─────────────────────────────────────────────────────────────────
+
   const guardarGasto = async () => {
     if (!concepto.trim() || !valor || Number(valor) <= 0) return
     if (visibilidad === "compartido" && !pagadoPor) return
@@ -195,11 +251,13 @@ export default function FinanzasPage() {
       : await supabase.from("gastos").insert(payload)
 
     if (esNuevo && visibilidad === "compartido" && otroPerfil) {
+      // miNombre, no nombreSujeto(userId) — esto lo lee tu pareja, no tú.
+      // "Tú agregaste" en su pantalla está mal; tu nombre real está bien.
       await createNotification(
         otroPerfil.id,
         "gasto",
         "Nuevo gasto",
-        `${nombreSujeto(userId)} agregó ${fmt(Number(valor))}`,
+        `${miNombre} agregó ${fmt(Number(valor))}`,
         { concepto, valor: Number(valor) }
       )
     }
@@ -325,6 +383,8 @@ export default function FinanzasPage() {
   }, [compartidos])
 
   const maxBarra = Math.max(1, ...categoriasComparadas.map(c => Math.max(c.actual, c.anterior)))
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
@@ -626,16 +686,58 @@ export default function FinanzasPage() {
                 />
               </div>
 
-              <select
-                value={categoriaId}
-                onChange={e => setCategoriaId(e.target.value)}
-                className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">Sin categoría</option>
-                {categorias.map(c => (
-                  <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
-                ))}
-              </select>
+              {!creandoCategoria ? (
+                <select
+                  value={categoriaId}
+                  onChange={e => onCategoriaSelect(e.target.value)}
+                  className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">Sin categoría</option>
+                  {categorias.map(c => (
+                    <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
+                  ))}
+                  <option value={NUEVA_CATEGORIA}>+ Nueva categoría...</option>
+                </select>
+              ) : (
+                <div className="bg-slate-800 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Tag size={13} className="text-slate-500 shrink-0" />
+                    <p className="text-xs text-slate-400">Nueva categoría</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={nuevaCatEmoji}
+                      onChange={e => setNuevaCatEmoji(e.target.value)}
+                      placeholder="🏷️"
+                      maxLength={4}
+                      className="w-14 p-3 rounded-lg bg-slate-900 text-center text-lg outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <input
+                      value={nuevaCatNombre}
+                      onChange={e => setNuevaCatNombre(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && crearCategoria()}
+                      placeholder="Nombre (ej. Mascotas, Suscripciones)"
+                      autoFocus
+                      className="flex-1 p-3 rounded-lg bg-slate-900 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setCreandoCategoria(false); setNuevaCatNombre(""); setNuevaCatEmoji("🏷️") }}
+                      className="flex-1 p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-medium transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={crearCategoria}
+                      disabled={creandoCatLoad || !nuevaCatNombre.trim()}
+                      className="flex-1 p-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-xs font-medium transition"
+                    >
+                      {creandoCatLoad ? "Creando..." : "Crear"}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {visibilidad === "compartido" && (
                 <div className="space-y-2 pt-2 border-t border-slate-800">
