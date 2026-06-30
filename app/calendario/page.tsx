@@ -442,24 +442,27 @@ export default function CalendarioPage() {
                 <button
                   onClick={() => setAsignadoA(userId)}
                   className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
-                    asignadoA === userId ? "bg-emerald-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    asignadoA === userId ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
+                  style={asignadoA === userId ? { background: "var(--accent)" } : undefined}
                 >
                   A mí
                 </button>
                 <button
                   onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
                   className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
-                    asignadoA === otroPerfil?.id && otroPerfil ? "bg-purple-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    asignadoA === otroPerfil?.id && otroPerfil ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
+                  style={asignadoA === otroPerfil?.id && otroPerfil ? { background: "var(--accent)", opacity: 0.75 } : undefined}
                 >
                   {otroPerfil ? otroPerfil.nombre : "Pareja"}
                 </button>
                 <button
                   onClick={() => setAsignadoA(null)}
                   className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
-                    asignadoA === null ? "bg-blue-600 text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    asignadoA === null ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
                   }`}
+                  style={asignadoA === null ? { background: "var(--accent)", opacity: 0.55 } : undefined}
                 >
                   Ambos
                 </button>
