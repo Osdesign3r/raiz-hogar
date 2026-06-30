@@ -18,18 +18,13 @@ maximumFractionDigits:0
 ).format(n)
 
 
+type Props = {
+  loading: boolean
+  totalMes: number
+  balance: string
+}
 
-
-
-export default function HouseholdCard({
-
-
-totalMes,
-
-balance
-
-
-}:any){
+export default function HouseholdCard({ loading, totalMes, balance }: Props){
 
 
 
@@ -49,13 +44,13 @@ Gasto compartido
 
 
 
-<p className="text-4xl font-bold mt-2">
-
-
-{fmt(totalMes)}
-
-
-</p>
+{loading ? (
+  <div className="h-10 w-40 bg-white/15 rounded-lg mt-2 animate-pulse" />
+) : (
+  <p className="text-4xl font-bold mt-2">
+    {fmt(totalMes)}
+  </p>
+)}
 
 
 
@@ -72,14 +67,13 @@ Gasto compartido
 
 
 
-<p className="text-lg font-semibold">
-
-
-{balance}
-
-
-</p>
-
+{loading ? (
+  <div className="h-6 w-32 bg-white/15 rounded-md mt-1 animate-pulse" />
+) : (
+  <p className="text-lg font-semibold">
+    {balance}
+  </p>
+)}
 
 
 </div>

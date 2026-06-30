@@ -8,8 +8,7 @@ import {
   ChevronDown, Flame, CalendarDays,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
-import { calcularBalance }
-from "@/lib/finanzas"
+import { calcularBalance, type ResumenPersona } from "@/lib/finanzas"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -49,7 +48,6 @@ const fechaRelativa = (fechaStr: string) => {
   return new Date(fechaStr + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })
 }
 
-type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
 
 export default function FinanzasPage() {
@@ -296,34 +294,22 @@ valor:Number(valor)
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
-  const resumenPorPersona = useMemo((): ResumenPersona[] => {
-    const pagado: Record<string, number> = {}
-    const resp:   Record<string, number> = {}
-    perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
-
-    compartidos.forEach(g => {
-      const v   = Number(g.valor) || 0
-      const pct = g.porcentaje_pagador ?? 50
-      if (!g.pagado_por || !(g.pagado_por in pagado)) return
-      pagado[g.pagado_por] += v
-      resp[g.pagado_por] += v * pct / 100
-      const otro = perfiles.find(p => p.id !== g.pagado_por)
-      if (otro) resp[otro.id] += v * (100 - pct) / 100
-    })
-
-    return perfiles.map(p => ({
-      ...p,
-      pagado:          pagado[p.id] ?? 0,
-      responsabilidad: resp[p.id]   ?? 0,
-      saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
-    }))
-  }, [compartidos, perfiles])
+  // Única fuente de verdad para el balance — la misma función que usa
+  // Home (vía useDashboard). Antes esto se reimplementaba en línea acá,
+  // lo que significaba que un cambio en la fórmula de liquidación podía
+  // quedar aplicado en una pantalla y no en la otra, mostrando cifras
+  // distintas para la misma deuda según dónde la mires.
+  const balanceHogar = useMemo(
+    () => calcularBalance(perfiles, compartidos),
+    [perfiles, compartidos]
+  )
+  const resumenPorPersona: ResumenPersona[] = balanceHogar.resumen
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
 
-  const acreedor = resumenPorPersona.find(p => p.saldo >  0.5)
-  const deudor   = resumenPorPersona.find(p => p.saldo < -0.5)
+  const acreedor = balanceHogar.acreedor
+  const deudor   = balanceHogar.deudor
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
