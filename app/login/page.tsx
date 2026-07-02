@@ -6,58 +6,82 @@ import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import Image from "next/image"
 
+// Tiempo máximo antes de asumir que el redirect no va a llegar
+// (popup bloqueado, red caída a mitad de OAuth, etc.)
+const TIMEOUT_MS = 12_000
+
 function LoginContent() {
-  const [loading, setLoading] = useState(false)
+  const [loading,  setLoading]  = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const searchParams = useSearchParams()
   const hasError = searchParams.get("error") === "auth"
 
   const loginConGoogle = async () => {
     setLoading(true)
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-    // No hace falta setLoading(false) — la página redirige
+    setErrorMsg(null)
+
+    // Si en TIMEOUT_MS no redirigió (popup bloqueado, red caída),
+    // devolvemos el control al usuario en vez de dejarlo mirando un spinner
+    // eterno sin salida.
+    const timer = setTimeout(() => {
+      setLoading(false)
+      setErrorMsg("La ventana de Google no respondió. Inténtalo de nuevo.")
+    }, TIMEOUT_MS)
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
+      })
+      if (error) {
+        clearTimeout(timer)
+        setLoading(false)
+        setErrorMsg("No se pudo conectar con Google. Intenta de nuevo.")
+      }
+      // Si no hay error, la página redirige — el timer queda corriendo pero
+      // el componente se desmonta antes de que dispare, sin efecto adverso.
+    } catch {
+      clearTimeout(timer)
+      setLoading(false)
+      setErrorMsg("Algo salió mal. Intenta de nuevo.")
+    }
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-[var(--background)] flex items-center justify-center p-6">
 
-  <div className="absolute inset-0 opacity-20 pointer-events-none">
+      <div className="absolute inset-0 opacity-20 pointer-events-none">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-3xl"
+          style={{ background: "var(--accent)" }} />
+      </div>
 
-    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-72 bg-blue-500 rounded-full blur-3xl"/>
-
-  </div>
       <div className="w-full max-w-sm">
 
-       {/* Logo / Brand */}
-<div className="text-center mb-10">
+        {/* Logo / Brand */}
+        <div className="text-center mb-10">
+          <Image
+            src="/icon-512.png"
+            alt="LAZO"
+            width={72}
+            height={72}
+            priority
+            className="mx-auto rounded-3xl mb-4 shadow-lg shadow-black/30"
+          />
+          <h1 className="text-3xl font-bold tracking-wide text-white">LAZO</h1>
+          <p className="text-sm text-muted mt-1">Infinitamente conectados</p>
+        </div>
 
-  <Image
-    src="/icon-512.png"
-    alt="LAZO"
-    width={72}
-    height={72}
-    priority
-    className="mx-auto rounded-3xl mb-4 shadow-lg shadow-black/30"
-  />
-
-  <h1 className="text-3xl font-bold tracking-wide text-white">
-    LAZO
-  </h1>
-
-  <p className="text-sm text-slate-500 mt-1">
-    Infinitamente conectados
-  </p>
-
-</div>
-
-        {/* Error */}
+        {/* Error OAuth (redirect de vuelta con ?error=auth) */}
         {hasError && (
           <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-6 text-center">
             Algo salió mal. Intenta de nuevo.
+          </div>
+        )}
+
+        {/* Error local (timeout / catch) */}
+        {errorMsg && (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-6 text-center">
+            {errorMsg}
           </div>
         )}
 
@@ -80,17 +104,15 @@ function LoginContent() {
           {loading ? "Conectando..." : "Entrar con Google"}
         </button>
 
-       <div className="text-center mt-8">
-
-  <p className="text-xs text-slate-500">
-    Solo TÙ y YO tenemos acceso a este hogar
-  </p>
-
-  <p className="text-[11px] text-slate-600 mt-2">
-    Google solo se usa para identificarlos de forma segura
-  </p>
-
-</div>
+        <div className="text-center mt-8">
+          {/* Fix: TÙ (acento grave) → TÚ (acento agudo) */}
+          <p className="text-xs text-muted">
+            Solo TÚ y YO tenemos acceso a este hogar
+          </p>
+          <p className="text-[11px] text-muted/60 mt-2">
+            Google solo se usa para identificarlos de forma segura
+          </p>
+        </div>
 
       </div>
     </main>

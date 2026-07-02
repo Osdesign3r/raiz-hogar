@@ -234,7 +234,17 @@ export default function CalendarioPage() {
     return eventos.filter(e => e.fecha > hoy() && e.fecha <= limite && !(e.tipo === "tarea" && e.completado)).length
   }, [eventos])
 
-  const proximosPorFecha = proximos.reduce<Record<string, Evento[]>>((acc, e) => {
+  // Filtro por tipo — todos muestra la vista mezclada actual, evento y
+  // tarea restringen la lista. Se aplica sobre proximos, no sobre atrasados
+  // (los atrasados siempre son tareas — no tiene sentido filtrarlos).
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | "evento" | "tarea">("todos")
+
+  const proximosFiltrados = useMemo(
+    () => filtroTipo === "todos" ? proximos : proximos.filter(e => e.tipo === filtroTipo),
+    [proximos, filtroTipo]
+  )
+
+  const proximosPorFecha = proximosFiltrados.reduce<Record<string, Evento[]>>((acc, e) => {
     if (!acc[e.fecha]) acc[e.fecha] = []
     acc[e.fecha].push(e)
     return acc
@@ -312,6 +322,24 @@ export default function CalendarioPage() {
           </div>
         </div>
 
+        {/* Filtro evento / tarea — solo visible cuando hay algo que filtrar */}
+        {!loading && eventos.length > 0 && (
+          <div className="flex gap-2 mb-4">
+            {(["todos", "evento", "tarea"] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFiltroTipo(f)}
+                className={"flex-1 p-2 rounded-lg text-xs font-medium transition " + (
+                  filtroTipo === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                )}
+                style={filtroTipo === f ? { background: "var(--accent)" } : undefined}
+              >
+                {f === "todos" ? "Todo" : f === "evento" ? "Eventos" : "Tareas"}
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-xl h-16 animate-pulse" />)}
@@ -330,8 +358,16 @@ export default function CalendarioPage() {
             {Object.keys(proximosPorFecha).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-4xl mb-3">🌿</div>
-                <p className="text-base font-medium text-secondary">La casa está en calma</p>
-                <p className="text-sm text-muted mt-1">No hay tareas pendientes ni eventos próximos</p>
+                <p className="text-base font-medium text-secondary">
+                  {filtroTipo === "todos" ? "La casa está en calma" :
+                   filtroTipo === "evento" ? "No hay eventos próximos" :
+                   "No hay tareas pendientes"}
+                </p>
+                <p className="text-sm text-muted mt-1">
+                  {filtroTipo === "todos"
+                    ? "No hay tareas pendientes ni eventos próximos"
+                    : "Prueba cambiando el filtro"}
+                </p>
               </div>
             ) : (
               <div className="space-y-4">

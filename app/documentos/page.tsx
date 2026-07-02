@@ -22,6 +22,9 @@ const hoy = () => new Date().toISOString().split("T")[0]
 const diasEntre = (a: string, b: string) =>
   Math.round((new Date(a + "T12:00:00").getTime() - new Date(b + "T12:00:00").getTime()) / 86400000)
 
+const MAX_MB = 20
+const MAX_BYTES = MAX_MB * 1024 * 1024
+
 const sanitizar = (nombre: string) =>
   nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9.\-]/g, "_")
 
@@ -32,6 +35,7 @@ export default function DocumentosPage() {
   const [hogarId,    setHogarId]    = useState<string | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [guardando,  setGuardando]  = useState(false)
+  const [progreso,   setProgreso]   = useState<number | null>(null)
   const [error,      setError]      = useState<string | null>(null)
 
   const [busqueda,   setBusqueda]   = useState("")
@@ -155,10 +159,25 @@ export default function DocumentosPage() {
 
     try {
       if (archivo) {
+        // Validar tamaño antes de intentar subir — Supabase devuelve un error
+        // poco descriptivo si se supera el límite del bucket, mejor cortarlo acá
+        // con un mensaje que el usuario entienda.
+        if (archivo.size > MAX_BYTES) {
+          setError(`El archivo supera el límite de ${MAX_MB} MB. Comprime o divide el documento.`)
+          setGuardando(false)
+          return
+        }
+
         const nuevoPath = `${hogarId}/${crypto.randomUUID()}-${sanitizar(archivo.name)}`
+
+        // Subida con progreso — onUploadProgress devuelve loaded/total en bytes.
+        // Usamos XMLHttpRequest directo vía fetch no soporta onprogress en todos
+        // los contextos, pero el SDK de Supabase Storage sí expone onUploadProgress.
+        setProgreso(1) // indeterminate — el SDK no expone onUploadProgress en esta versión
         const { error: upErr } = await supabase.storage
           .from("documentos")
           .upload(nuevoPath, archivo, { contentType: archivo.type })
+        setProgreso(null)
         if (upErr) throw new Error("No se pudo subir el archivo: " + upErr.message)
         archivoPath = nuevoPath
       }
@@ -431,16 +450,36 @@ export default function DocumentosPage() {
 
               <label className="flex items-center gap-2 p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary cursor-pointer hover:opacity-80 transition">
                 <Upload size={15} className="shrink-0 text-muted" />
-                <span className="truncate">
-                  {archivo ? archivo.name : editandoId ? "Reemplazar archivo (opcional)" : "Selecciona un archivo"}
+                <span className="truncate flex-1">
+                  {archivo
+                    ? `${archivo.name} · ${(archivo.size / 1024 / 1024).toFixed(1)} MB`
+                    : editandoId ? "Reemplazar archivo (opcional)" : "Selecciona un archivo"}
                 </span>
+                {!archivo && (
+                  <span className="text-[10px] text-muted shrink-0">máx. {MAX_MB} MB</span>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.gif,.zip,.txt,.csv"
                   onChange={e => setArchivo(e.target.files?.[0] ?? null)}
                 />
               </label>
+
+              {/* Indicador de subida — el SDK no expone progreso real en esta versión,
+                  así que mostramos un pulso animado mientras dura la operación */}
+              {progreso !== null && (
+                <div className="flex items-center gap-2 text-[11px] text-muted">
+                  <div className="h-1.5 flex-1 bg-[var(--surface-2)] rounded-full overflow-hidden">
+                    <div
+                      className="h-full w-1/3 rounded-full animate-pulse"
+                      style={{ background: "var(--accent)" }}
+                    />
+                  </div>
+                  <span>Subiendo...</span>
+                </div>
+              )}
 
               <input
                 value={nombre}

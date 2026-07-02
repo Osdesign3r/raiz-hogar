@@ -24,8 +24,10 @@ export default function FamiliaPage() {
   const [aEliminar,    setAEliminar]    = useState<Miembro | null>(null)
 
   const [editandoId, setEditandoId] = useState<string | null>(null)
-  const [nombre,     setNombre]     = useState("")
-  const [rol,        setRol]        = useState("Otro")
+  const [nombre,          setNombre]          = useState("")
+  const [rol,             setRol]             = useState("Otro")
+  const [fechaNacimiento, setFechaNacimiento] = useState("")
+  const [notas,           setNotas]           = useState("")
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -51,6 +53,8 @@ export default function FamiliaPage() {
     setEditandoId(null)
     setNombre("")
     setRol("Otro")
+    setFechaNacimiento("")
+    setNotas("")
   }, [])
 
   const abrirNuevo = () => {
@@ -62,6 +66,8 @@ export default function FamiliaPage() {
     setEditandoId(m.id)
     setNombre(m.nombre)
     setRol(m.parentesco)
+    setFechaNacimiento(m.fecha_nacimiento ?? "")
+    setNotas(m.notas ?? "")
     setModalAbierto(true)
   }
 
@@ -75,7 +81,12 @@ export default function FamiliaPage() {
     setGuardando(true)
     setError(null)
 
-    const payload = { nombre: nombre.trim(), parentesco: rol }
+    const payload = {
+      nombre:           nombre.trim(),
+      parentesco:       rol,
+      fecha_nacimiento: fechaNacimiento || null,
+      notas:            notas.trim() || null,
+    }
 
     const res = editandoId
       ? await supabase.from("miembros").update(payload).eq("id", editandoId)
@@ -207,6 +218,26 @@ export default function FamiliaPage() {
                   </button>
                 ))}
               </div>
+
+              <div>
+                <p className="text-xs text-muted mb-1">Fecha de nacimiento (opcional)</p>
+                <input
+                  value={fechaNacimiento}
+                  onChange={e => setFechaNacimiento(e.target.value)}
+                  type="date"
+                  className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
+                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                />
+              </div>
+
+              <textarea
+                value={notas}
+                onChange={e => setNotas(e.target.value)}
+                placeholder="Notas (opcional) — alergias, médico, colegio..."
+                rows={2}
+                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1 resize-none"
+                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+              />
 
               {error && <p className="text-red-400 text-xs">{error}</p>}
 
