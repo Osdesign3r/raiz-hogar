@@ -55,7 +55,7 @@ export function useDashboard(): DashboardData {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { setLoading(false); return }
 
-    const [perfilRes, perfilesRes, gastosRes, eventosRes, documentosRes] = await Promise.all([
+    const [perfilRes, perfilesRes, gastosRes, eventosRes, documentosRes, gastosBalRes] = await Promise.all([
       supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
       supabase.from("perfiles").select("id,nombre"),
       supabase.from("gastos").select("*").eq("visibilidad", "compartido").gte("fecha", fechaInicio).lte("fecha", ultimoDia),
@@ -66,10 +66,14 @@ export function useDashboard(): DashboardData {
         .order("fecha", { ascending: true })
         .limit(20),
       supabase.from("documentos").select("id,nombre,created_at,created_by").order("created_at", { ascending: false }).limit(MAX_ACTIVITY),
+      // Sin filtro de fecha — saldo corrido histórico, igual que en Finanzas.
+      // Home y Finanzas deben mostrar exactamente el mismo número.
+      supabase.from("gastos").select("id,valor,pagado_por,porcentaje_pagador").eq("visibilidad", "compartido"),
     ])
 
     const perfiles = perfilesRes.data ?? []
-    const gastos = gastosRes.data ?? []
+    const gastos = gastosRes.data ?? []          // solo mes actual — para totalMes y actividad
+    const gastosBalance = gastosBalRes.data ?? [] // todos los meses — para el saldo corrido
     const eventos = eventosRes.data ?? []
     const documentos = documentosRes.data ?? []
 
@@ -88,7 +92,7 @@ export function useDashboard(): DashboardData {
     // Mismo balance, contado distinto según quién lo lee — esto es lo que
     // lo separa de un estado de cuenta. "X le debe a Y" es neutral en el
     // papel pero suena a cobranza cuando lo lees en tu propia pantalla.
-    const b = calcularBalance(perfiles, gastos)
+    const b = calcularBalance(perfiles, gastosBalance)
     if (b.acreedor && b.deudor) {
       const monto = fmt(b.diferencia)
       if (b.acreedor.id === session.user.id) {
