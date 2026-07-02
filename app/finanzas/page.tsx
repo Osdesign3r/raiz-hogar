@@ -53,6 +53,7 @@ type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: n
 export default function FinanzasPage() {
   const [gastos,            setGastos]            = useState<Gasto[]>([])
   const [gastosMesAnterior, setGastosMesAnterior]  = useState<Gasto[]>([])
+  const [gastosBalance,     setGastosBalance]      = useState<Gasto[]>([]) // todos los compartidos — saldo corrido
   const [categorias,        setCategorias]         = useState<Categoria[]>([])
   const [perfiles,          setPerfiles]           = useState<Perfil[]>([])
   const [userId,            setUserId]             = useState<string | null>(null)
@@ -89,7 +90,7 @@ export default function FinanzasPage() {
     const fechaInicioAnt = `${mesAnterior}-01`
     const fechaFinAnt    = ultimoDiaMes(mesAnterior)
 
-    const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }, { data: gastsAntData }] =
+    const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }, { data: gastsAntData }, { data: gastsBalData }] =
       await Promise.all([
         supabase.auth.getUser(),
         supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
@@ -106,6 +107,14 @@ export default function FinanzasPage() {
           .eq("visibilidad", "compartido")
           .gte("fecha", fechaInicioAnt)
           .lte("fecha", fechaFinAnt),
+        // Sin filtro de fecha: alimenta el balance corrido.
+        // El saldo no es mensual, es un flujo continuo — lo que queda
+        // pendiente al 30/jun sigue vivo el 1/jul hasta que se cruce con
+        // nuevos gastos que lo neutralicen.
+        supabase
+          .from("gastos")
+          .select("id, valor, pagado_por, porcentaje_pagador, visibilidad")
+          .eq("visibilidad", "compartido"),
       ])
 
     if (gastosErr) {
@@ -116,6 +125,7 @@ export default function FinanzasPage() {
       setCategorias(cats ?? [])
       setGastos((gastsData ?? []) as Gasto[])
       setGastosMesAnterior((gastsAntData ?? []) as Gasto[])
+      setGastosBalance((gastsBalData ?? []) as Gasto[])
     }
     setLoading(false)
   }, [mesActivo])
@@ -294,22 +304,21 @@ valor:Number(valor)
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
-  // Única fuente de verdad para el balance — la misma función que usa
-  // Home (vía useDashboard). Antes esto se reimplementaba en línea acá,
-  // lo que significaba que un cambio en la fórmula de liquidación podía
-  // quedar aplicado en una pantalla y no en la otra, mostrando cifras
-  // distintas para la misma deuda según dónde la mires.
+  // Balance del mes activo — el modelo es mensual: cada mes se cuadra solo
+  // con los gastos del período. El arriendo de julio cubre lo que se debe en julio.
+  // El balance usa TODOS los gastos compartidos históricos — es un saldo
+  // corrido, no mensual. El arriendo de julio cruza contra lo que quedó
+  // pendiente de junio de forma natural, sin "cerrar" meses manualmente.
   const balanceHogar = useMemo(
-    () => calcularBalance(perfiles, compartidos),
-    [perfiles, compartidos]
+    () => calcularBalance(perfiles, gastosBalance),
+    [perfiles, gastosBalance]
   )
   const resumenPorPersona: ResumenPersona[] = balanceHogar.resumen
+  const acreedor = balanceHogar.acreedor
+  const deudor   = balanceHogar.deudor
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
-
-  const acreedor = balanceHogar.acreedor
-  const deudor   = balanceHogar.deudor
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
@@ -424,7 +433,16 @@ valor:Number(valor)
                   </span>
                 )}
               </div>
-              <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
+              {totalCompartido === 0 ? (
+                <div className="-mt-1 space-y-1">
+                  <p className="text-3xl font-bold text-muted">$0</p>
+                  <p className="text-xs text-muted">
+                    Mes nuevo — agrega el primer gasto con el botón +
+                  </p>
+                </div>
+              ) : (
+                <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
+              )}
 
               {/* Conclusión primero — esto es lo único que de verdad importa
                   al abrir la app: ¿quién le debe a quién? Clítico (te/le)
