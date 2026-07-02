@@ -30,6 +30,17 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener("install", () => {
   console.log("SW instalado")
+  // Sin esto, un SW nuevo se queda en estado "waiting" para siempre si la
+  // PWA no se cierra por completo — y una PWA instalada casi nunca se
+  // cierra. skipWaiting() lo activa apenas termina de instalarse, sin
+  // esperar a que el usuario mate la app.
+  self.skipWaiting()
+})
+
+self.addEventListener("activate", (event) => {
+  // clients.claim() hace que el SW nuevo tome control de las pestañas ya
+  // abiertas de inmediato, en vez de esperar a la próxima navegación.
+  event.waitUntil(self.clients.claim())
 })
 
 self.addEventListener("fetch", () => {})

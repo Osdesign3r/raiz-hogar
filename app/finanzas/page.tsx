@@ -75,6 +75,10 @@ export default function FinanzasPage() {
   const [pagadoPor,   setPagadoPor]   = useState<string>("")
   const [pctPagador,  setPctPagador]  = useState(50)
   const [categoriaId, setCategoriaId] = useState("")
+  const [creandoCategoria,   setCreandoCategoria]   = useState(false)
+  const [nuevaCatNombre,     setNuevaCatNombre]     = useState("")
+  const [nuevaCatEmoji,      setNuevaCatEmoji]      = useState("📦")
+  const [guardandoCategoria, setGuardandoCategoria] = useState(false)
   const [fecha,       setFecha]       = useState(hoy())
   const [mesActivo,   setMesActivo]   = useState(() => hoy().slice(0, 7))
 
@@ -178,6 +182,9 @@ export default function FinanzasPage() {
     setPctPagador(50)
     setCategoriaId("")
     setFecha(hoy())
+    setCreandoCategoria(false)
+    setNuevaCatNombre("")
+    setNuevaCatEmoji("📦")
     if (userId) setPagadoPor(userId)
   }, [userId])
 
@@ -292,6 +299,32 @@ valor:Number(valor)
       setGastos(prev => prev.filter(g => g.id !== id))
       if (editandoId === id) cerrarModal()
     }
+  }
+
+  // Categoría nueva desde el mismo modal de gasto — sin esto, agregar una
+  // categoría te obligaba a salir del flujo. `categorias` no tiene hogar_id
+  // (es global, compartida por todos), así que un solo insert basta.
+  const crearCategoria = async () => {
+    const nombre = nuevaCatNombre.trim()
+    if (!nombre) return
+    setGuardandoCategoria(true)
+
+    const { data, error: err } = await supabase
+      .from("categorias")
+      .insert({ nombre, emoji: nuevaCatEmoji.trim() || "📦" })
+      .select()
+      .single()
+
+    if (!err && data) {
+      setCategorias(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      setCategoriaId(data.id)
+      setNuevaCatNombre("")
+      setNuevaCatEmoji("📦")
+      setCreandoCategoria(false)
+    } else {
+      setError("No se pudo crear la categoría.")
+    }
+    setGuardandoCategoria(false)
   }
 
   // ── Cálculos: balance ────────────────────────────────────────────────────
@@ -806,17 +839,61 @@ valor:Number(valor)
                 />
               </div>
 
-              <select
-                value={categoriaId}
-                onChange={e => setCategoriaId(e.target.value)}
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              >
-                <option value="">Sin categoría</option>
-                {categorias.map(c => (
-                  <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  value={categoriaId}
+                  onChange={e => setCategoriaId(e.target.value)}
+                  className="flex-1 p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
+                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                >
+                  <option value="">Sin categoría</option>
+                  {categorias.map(c => (
+                    <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setCreandoCategoria(v => !v)}
+                  title="Nueva categoría"
+                  className={`w-11 h-11 shrink-0 rounded-lg flex items-center justify-center transition ${
+                    creandoCategoria ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                  }`}
+                  style={creandoCategoria ? { background: "var(--accent)" } : undefined}
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+
+              {creandoCategoria && (
+                <div className="flex gap-2 items-center bg-[var(--surface-2)] rounded-lg p-2">
+                  <input
+                    value={nuevaCatEmoji}
+                    onChange={e => setNuevaCatEmoji(e.target.value)}
+                    placeholder="📦"
+                    maxLength={2}
+                    className="w-12 p-2 rounded-lg bg-[var(--surface)] text-center text-lg outline-none focus:ring-1"
+                    style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                  />
+                  <input
+                    value={nuevaCatNombre}
+                    onChange={e => setNuevaCatNombre(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && crearCategoria()}
+                    placeholder="Nombre de la categoría"
+                    autoFocus
+                    className="flex-1 p-2 rounded-lg bg-[var(--surface)] placeholder:text-muted text-sm outline-none focus:ring-1 min-w-0"
+                    style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                  />
+                  <button
+                    type="button"
+                    onClick={crearCategoria}
+                    disabled={guardandoCategoria || !nuevaCatNombre.trim()}
+                    className="px-3 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-40 shrink-0"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    Crear
+                  </button>
+                </div>
+              )}
 
               {visibilidad === "compartido" && (
                 <div className="space-y-2 pt-2 border-t border-white/5">
