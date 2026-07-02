@@ -320,6 +320,24 @@ valor:Number(valor)
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
 
+  // Balance de SOLO este mes (no el corrido histórico que alimenta el
+  // balance de arriba) — esto responde una pregunta distinta: no "¿quién
+  // le debe a quién en total?" sino "¿cuánto me costó vivir este mes de
+  // verdad, sea quien sea que puso el dinero?". `personales` ya viene
+  // filtrado por RLS a solo tus propios gastos privados, así que este
+  // cálculo es inherentemente personal — no se puede ni se debe mostrar
+  // el lado de tu pareja acá.
+  const balanceMes = useMemo(
+    () => calcularBalance(perfiles, compartidos),
+    [perfiles, compartidos]
+  )
+  const miResumenMes      = balanceMes.resumen.find(p => p.id === userId) ?? null
+  const miResponsabilidad = miResumenMes?.responsabilidad ?? 0
+  const miPagadoMes       = miResumenMes?.pagado ?? 0
+  const costoRealMes      = totalPersonal + miResponsabilidad
+  const bolsilloMes       = totalPersonal + miPagadoMes
+  const diferenciaBolsillo = bolsilloMes - costoRealMes // = miResumenMes.saldo del mes activo
+
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
   const agruparPorCategoria = (lista: Gasto[]) => {
@@ -498,6 +516,48 @@ valor:Number(valor)
               )}
             </div>
 
+            {/* ── Tu costo real — lo que de verdad te tocó pagar este mes,
+                incluyendo lo privado, sin importar quién puso el dinero de
+                lo compartido. Distinto de la deuda: la deuda es "quién le
+                debe a quién", esto es "cuánto me costó vivir" ── */}
+            {(totalPersonal > 0 || totalCompartido > 0) && (
+              <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
+                <p className="text-xs text-muted font-medium uppercase tracking-wide flex items-center gap-1">
+                  <Lock size={11} /> Tu costo real de {nombreMes(mesActivo)}
+                </p>
+                <div>
+                  <p className="text-3xl font-bold">{fmt(costoRealMes)}</p>
+                  <p className="text-[11px] text-muted mt-1">
+                    Gastos propios + tu parte real de lo compartido
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-muted">
+                  <div>
+                    <p className="flex items-center gap-1"><Lock size={10} /> Gastos propios</p>
+                    <p className="text-secondary font-medium text-sm">{fmt(totalPersonal)}</p>
+                  </div>
+                  <div>
+                    <p className="flex items-center gap-1"><Users size={10} /> Tu parte de lo compartido</p>
+                    <p className="text-secondary font-medium text-sm">{fmt(miResponsabilidad)}</p>
+                  </div>
+                </div>
+
+                <div className="bg-[var(--surface-2)] rounded-xl p-3 flex items-center justify-between">
+                  <p className="text-xs text-muted">Salió de tu bolsillo este mes</p>
+                  <p className="text-sm font-semibold">{fmt(bolsilloMes)}</p>
+                </div>
+
+                {Math.abs(diferenciaBolsillo) > 0.5 && (
+                  <p className="text-[11px] text-muted text-center leading-relaxed">
+                    {diferenciaBolsillo > 0
+                      ? `Este mes adelantaste ${fmt(diferenciaBolsillo)} de lo compartido — ya suma a tu balance con ${otroPerfil?.nombre ?? "tu pareja"}.`
+                      : `${otroPerfil?.nombre ?? "Tu pareja"} adelantó ${fmt(Math.abs(diferenciaBolsillo))} de lo tuyo este mes — ya suma al balance.`}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* ── Stats rápidas ──────────────────────────────────────────── */}
             {totalCompartido > 0 && (
               <div className="grid grid-cols-2 gap-2 mb-3">
@@ -515,13 +575,6 @@ valor:Number(valor)
                     </p>
                   )}
                 </div>
-              </div>
-            )}
-
-            {totalPersonal > 0 && (
-              <div className="surface border-subtle rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
-                <p className="text-xs text-muted flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
-                <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
               </div>
             )}
 
