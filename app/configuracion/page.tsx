@@ -5,10 +5,12 @@ import { supabase } from "@/lib/supabase"
 import { useUser } from "@/hooks/useUser"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { LogOut, Save, User, Shield, Palette, Users, ChevronRight } from "lucide-react"
+import { LogOut, Save, User, Shield, Palette, Users, ChevronRight, Bell, BellOff, BellRing } from "lucide-react"
 import { ACCENT_COLORS, getAccentByValue, type AccentColor } from "@/lib/colors"
+import { requestNotificationPermission } from "@/lib/firebase"
 
 type Perfil = { id: string; nombre: string; email: string; avatar_url: string | null; accent_color: string }
+type EstadoPush = "unsupported" | "default" | "granted" | "denied"
 
 export default function ConfiguracionPage() {
   const { user, loading: authLoading } = useUser()
@@ -21,6 +23,34 @@ export default function ConfiguracionPage() {
   const [guardando, setGuardando] = useState(false)
   const [guardado,  setGuardado]  = useState(false)
   const [error,     setError]     = useState<string | null>(null)
+
+  const [estadoPush,   setEstadoPush]   = useState<EstadoPush>("unsupported")
+  const [activandoPush, setActivandoPush] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setEstadoPush("unsupported")
+      return
+    }
+    setEstadoPush(Notification.permission as EstadoPush)
+  }, [])
+
+  const activarPush = async () => {
+    // Este onClick es el único lugar autorizado a pedir permiso — en iOS
+    // Safari, pedirlo fuera de un gesto directo del usuario no muestra el
+    // diálogo y puede quemar el permiso a "denied" para siempre.
+    setActivandoPush(true)
+    const token = await requestNotificationPermission()
+    setEstadoPush(typeof window !== "undefined" ? (Notification.permission as EstadoPush) : "default")
+    if (!token) {
+      setError(
+        Notification.permission === "denied"
+          ? "iOS bloqueó el permiso. Bórrala del inicio y vuelve a 'Agregar a inicio' desde Safari para reintentar."
+          : "No se pudo activar. Intenta de nuevo."
+      )
+    }
+    setActivandoPush(false)
+  }
 
   useEffect(() => {
     if (!user) return
@@ -166,6 +196,49 @@ export default function ConfiguracionPage() {
           <Save size={15} />
           {guardando ? "Guardando..." : guardado ? "✓ Guardado" : "Guardar cambios"}
         </button>
+
+        {/* Notificaciones push */}
+        <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-[var(--surface-2)] flex items-center justify-center shrink-0">
+              {estadoPush === "granted" ? (
+                <BellRing size={18} style={{ color: "var(--accent)" }} />
+              ) : estadoPush === "denied" ? (
+                <BellOff size={18} className="text-red-400" />
+              ) : (
+                <Bell size={18} className="text-muted" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-sm">Notificaciones push</p>
+              <p className="text-xs text-secondary">
+                {estadoPush === "granted"  ? "Activadas en este dispositivo" :
+                 estadoPush === "denied"   ? "Bloqueadas por el sistema" :
+                 estadoPush === "unsupported" ? "No disponibles en este navegador" :
+                                              "Aún no activadas en este dispositivo"}
+              </p>
+            </div>
+          </div>
+
+          {estadoPush !== "granted" && estadoPush !== "unsupported" && (
+            <button
+              onClick={activarPush}
+              disabled={activandoPush}
+              className="w-full accent-gradient disabled:opacity-40 p-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition text-white"
+            >
+              <Bell size={15} />
+              {activandoPush ? "Activando..." : "Activar notificaciones"}
+            </button>
+          )}
+
+          {estadoPush === "denied" && (
+            <p className="text-[11px] text-muted leading-relaxed">
+              iOS ya decidió por ti y no deja volver a preguntar desde la app. Bórrala del
+              inicio y agrégala de nuevo desde Safari (compartir → Agregar a inicio) para
+              que vuelva a preguntar.
+            </p>
+          )}
+        </div>
 
         {/* Seguridad */}
         <div className="surface border-subtle rounded-2xl p-4 mb-3 flex items-center gap-3">

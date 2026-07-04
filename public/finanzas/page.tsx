@@ -261,12 +261,6 @@ otroPerfil
 
 ){
 
-// nombreSujeto(userId) SIEMPRE da "Tú" acá — compara userId contra sí
-// mismo. Ese helper solo tiene sentido desde el punto de vista de quien
-// mira la pantalla; este mensaje lo va a leer otroPerfil, así que necesita
-// el nombre real de quien creó el gasto, no un pronombre relativo a nadie.
-const miNombre = perfiles.find(p => p.id === userId)?.nombre ?? "Tu pareja"
-
 await createNotification(
 
 otroPerfil.id,
@@ -275,7 +269,7 @@ otroPerfil.id,
 
 "Nuevo gasto",
 
-`${miNombre} agregó ${fmt(Number(valor))}`,
+`${nombreSujeto(userId)} agregó ${fmt(Number(valor))}`,
 
 {
 
