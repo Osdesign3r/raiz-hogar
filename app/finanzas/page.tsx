@@ -7,8 +7,8 @@ import {
   Trash2, Plus, TrendingUp, TrendingDown, Lock, Users, Pencil, X,
   ChevronDown, Flame, CalendarDays,
 } from "lucide-react"
-import { createNotification } from "@/lib/notifications"
-import { calcularBalance, type ResumenPersona } from "@/lib/finanzas"
+import { calcularBalance }
+from "@/lib/finanzas"
 
 const hoy = () => new Date().toISOString().split("T")[0]
 
@@ -30,30 +30,12 @@ const nombreMes = (mes: string) => {
 
 const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
 
-// Fecha relativa corta — "Hoy", "Ayer", "Hace N días" — para que un dato
-// como "gasto más grande" no quede huérfano sin saber si fue ayer o hace
-// tres semanas.
-const diasDesde = (fechaStr: string) => {
-  const f = new Date(fechaStr + "T12:00:00")
-  const ahora = new Date()
-  ahora.setHours(12, 0, 0, 0)
-  return Math.round((ahora.getTime() - f.getTime()) / 86400000)
-}
-
-const fechaRelativa = (fechaStr: string) => {
-  const d = diasDesde(fechaStr)
-  if (d === 0) return "Hoy"
-  if (d === 1) return "Ayer"
-  if (d > 1 && d < 7) return `Hace ${d} días`
-  return new Date(fechaStr + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })
-}
-
+type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
 
 export default function FinanzasPage() {
   const [gastos,            setGastos]            = useState<Gasto[]>([])
   const [gastosMesAnterior, setGastosMesAnterior]  = useState<Gasto[]>([])
-  const [gastosBalance,     setGastosBalance]      = useState<Gasto[]>([]) // todos los compartidos — saldo corrido
   const [categorias,        setCategorias]         = useState<Categoria[]>([])
   const [perfiles,          setPerfiles]           = useState<Perfil[]>([])
   const [userId,            setUserId]             = useState<string | null>(null)
@@ -64,7 +46,6 @@ export default function FinanzasPage() {
   const [modalAbierto,    setModalAbierto]    = useState(false)
   const [hojaVisible,     setHojaVisible]     = useState(false)
   const [mostrarDesglose, setMostrarDesglose] = useState(false)
-  const [mostrarDetalle,  setMostrarDetalle]  = useState(false)
   const [editandoId,      setEditandoId]      = useState<string | null>(null)
   const [editandoAjeno,   setEditandoAjeno]   = useState(false)
   const [filtro,          setFiltro]          = useState<"todos" | "compartido" | "privado">("todos")
@@ -75,10 +56,6 @@ export default function FinanzasPage() {
   const [pagadoPor,   setPagadoPor]   = useState<string>("")
   const [pctPagador,  setPctPagador]  = useState(50)
   const [categoriaId, setCategoriaId] = useState("")
-  const [creandoCategoria,   setCreandoCategoria]   = useState(false)
-  const [nuevaCatNombre,     setNuevaCatNombre]     = useState("")
-  const [nuevaCatEmoji,      setNuevaCatEmoji]      = useState("📦")
-  const [guardandoCategoria, setGuardandoCategoria] = useState(false)
   const [fecha,       setFecha]       = useState(hoy())
   const [mesActivo,   setMesActivo]   = useState(() => hoy().slice(0, 7))
 
@@ -94,7 +71,7 @@ export default function FinanzasPage() {
     const fechaInicioAnt = `${mesAnterior}-01`
     const fechaFinAnt    = ultimoDiaMes(mesAnterior)
 
-    const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }, { data: gastsAntData }, { data: gastsBalData }] =
+    const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }, { data: gastsAntData }] =
       await Promise.all([
         supabase.auth.getUser(),
         supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
@@ -111,14 +88,6 @@ export default function FinanzasPage() {
           .eq("visibilidad", "compartido")
           .gte("fecha", fechaInicioAnt)
           .lte("fecha", fechaFinAnt),
-        // Sin filtro de fecha: alimenta el balance corrido.
-        // El saldo no es mensual, es un flujo continuo — lo que queda
-        // pendiente al 30/jun sigue vivo el 1/jul hasta que se cruce con
-        // nuevos gastos que lo neutralicen.
-        supabase
-          .from("gastos")
-          .select("id, valor, pagado_por, porcentaje_pagador, visibilidad")
-          .eq("visibilidad", "compartido"),
       ])
 
     if (gastosErr) {
@@ -129,7 +98,6 @@ export default function FinanzasPage() {
       setCategorias(cats ?? [])
       setGastos((gastsData ?? []) as Gasto[])
       setGastosMesAnterior((gastsAntData ?? []) as Gasto[])
-      setGastosBalance((gastsBalData ?? []) as Gasto[])
     }
     setLoading(false)
   }, [mesActivo])
@@ -150,25 +118,13 @@ export default function FinanzasPage() {
 
   const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
-
-  // "Tú" como sujeto ("Tú le debes a Catherine") — nombres tal cual están
-  // guardados en el perfil de cada uno, sin recortar ni inventar formato.
   const nombreSujeto = useCallback(
     (id: string | null) => esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
-  // "ti" como objeto tras preposición ("...debe a ti").
   const nombreObjeto = useCallback(
-    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => esYo(id) ? "tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
-  )
-  // El clítico dativo (te/le) concuerda con quien RECIBE la deuda, no con
-  // el sujeto que conjuga el verbo. Por eso van separados: "Catherine TE
-  // debe a ti" (clítico = receptor = tú), pero "Tú LE debes a Catherine"
-  // (clítico = receptor = ella). Mezclarlos da la frase rota de antes.
-  const cliticoDeudaPara = useCallback(
-    (idReceptor: string | null) => esYo(idReceptor) ? "te" : "le",
-    [esYo]
   )
 
   // ── Edición / modal ──────────────────────────────────────────────────────
@@ -182,9 +138,6 @@ export default function FinanzasPage() {
     setPctPagador(50)
     setCategoriaId("")
     setFecha(hoy())
-    setCreandoCategoria(false)
-    setNuevaCatNombre("")
-    setNuevaCatEmoji("📦")
     if (userId) setPagadoPor(userId)
   }, [userId])
 
@@ -221,6 +174,12 @@ export default function FinanzasPage() {
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
+  // La notificación al otro perfil YA NO se dispara desde aquí — la genera
+  // el trigger `trg_notificar_gasto_compartido` en el INSERT de `gastos`.
+  // Resolver "quién es mi pareja" en el cliente era una condición de carrera:
+  // si `perfiles` no había cargado todavía, `otroPerfil` salía null y la
+  // notificación se perdía en silencio. El trigger la resuelve en la DB,
+  // donde el dato siempre está completo.
 
   const guardarGasto = async () => {
     if (!concepto.trim() || !valor || Number(valor) <= 0) return
@@ -239,55 +198,16 @@ export default function FinanzasPage() {
       notas:               null,
     }
 
-   const esNuevo = !editandoId
+    const res = editandoId
+      ? await supabase
+          .from("gastos")
+          .update(payload)
+          .eq("id", editandoId)
 
+      : await supabase
+          .from("gastos")
+          .insert(payload)
 
-const res = editandoId
-  ? await supabase
-      .from("gastos")
-      .update(payload)
-      .eq("id", editandoId)
-
-  : await supabase
-      .from("gastos")
-      .insert(payload)
-
-      
-if (
-
-esNuevo &&
-visibilidad==="compartido" &&
-otroPerfil
-
-){
-
-// nombreSujeto(userId) SIEMPRE da "Tú" acá — compara userId contra sí
-// mismo. Ese helper solo tiene sentido desde el punto de vista de quien
-// mira la pantalla; este mensaje lo va a leer otroPerfil, así que necesita
-// el nombre real de quien creó el gasto, no un pronombre relativo a nadie.
-const miNombre = perfiles.find(p => p.id === userId)?.nombre ?? "Tu pareja"
-
-await createNotification(
-
-otroPerfil.id,
-
-"gasto",
-
-"Nuevo gasto",
-
-`${miNombre} agregó ${fmt(Number(valor))}`,
-
-{
-
-concepto,
-
-valor:Number(valor)
-
-}
-
-)
-
-}
     if (res.error) {
       setError("No se pudo guardar el gasto.")
     } else {
@@ -307,32 +227,6 @@ valor:Number(valor)
     }
   }
 
-  // Categoría nueva desde el mismo modal de gasto — sin esto, agregar una
-  // categoría te obligaba a salir del flujo. `categorias` no tiene hogar_id
-  // (es global, compartida por todos), así que un solo insert basta.
-  const crearCategoria = async () => {
-    const nombre = nuevaCatNombre.trim()
-    if (!nombre) return
-    setGuardandoCategoria(true)
-
-    const { data, error: err } = await supabase
-      .from("categorias")
-      .insert({ nombre, emoji: nuevaCatEmoji.trim() || "📦" })
-      .select()
-      .single()
-
-    if (!err && data) {
-      setCategorias(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre)))
-      setCategoriaId(data.id)
-      setNuevaCatNombre("")
-      setNuevaCatEmoji("📦")
-      setCreandoCategoria(false)
-    } else {
-      setError("No se pudo crear la categoría.")
-    }
-    setGuardandoCategoria(false)
-  }
-
   // ── Cálculos: balance ────────────────────────────────────────────────────
 
   const compartidos = useMemo(() => gastos.filter(g => g.visibilidad === "compartido"), [gastos])
@@ -343,39 +237,34 @@ valor:Number(valor)
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
-  // Balance del mes activo — el modelo es mensual: cada mes se cuadra solo
-  // con los gastos del período. El arriendo de julio cubre lo que se debe en julio.
-  // El balance usa TODOS los gastos compartidos históricos — es un saldo
-  // corrido, no mensual. El arriendo de julio cruza contra lo que quedó
-  // pendiente de junio de forma natural, sin "cerrar" meses manualmente.
-  const balanceHogar = useMemo(
-    () => calcularBalance(perfiles, gastosBalance),
-    [perfiles, gastosBalance]
-  )
-  const resumenPorPersona: ResumenPersona[] = balanceHogar.resumen
-  const acreedor = balanceHogar.acreedor
-  const deudor   = balanceHogar.deudor
+  const resumenPorPersona = useMemo((): ResumenPersona[] => {
+    const pagado: Record<string, number> = {}
+    const resp:   Record<string, number> = {}
+    perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
+
+    compartidos.forEach(g => {
+      const v   = Number(g.valor) || 0
+      const pct = g.porcentaje_pagador ?? 50
+      if (!g.pagado_por || !(g.pagado_por in pagado)) return
+      pagado[g.pagado_por] += v
+      resp[g.pagado_por] += v * pct / 100
+      const otro = perfiles.find(p => p.id !== g.pagado_por)
+      if (otro) resp[otro.id] += v * (100 - pct) / 100
+    })
+
+    return perfiles.map(p => ({
+      ...p,
+      pagado:          pagado[p.id] ?? 0,
+      responsabilidad: resp[p.id]   ?? 0,
+      saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
+    }))
+  }, [compartidos, perfiles])
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
 
-  // Balance de SOLO este mes (no el corrido histórico que alimenta el
-  // balance de arriba) — esto responde una pregunta distinta: no "¿quién
-  // le debe a quién en total?" sino "¿cuánto me costó vivir este mes de
-  // verdad, sea quien sea que puso el dinero?". `personales` ya viene
-  // filtrado por RLS a solo tus propios gastos privados, así que este
-  // cálculo es inherentemente personal — no se puede ni se debe mostrar
-  // el lado de tu pareja acá.
-  const balanceMes = useMemo(
-    () => calcularBalance(perfiles, compartidos),
-    [perfiles, compartidos]
-  )
-  const miResumenMes      = balanceMes.resumen.find(p => p.id === userId) ?? null
-  const miResponsabilidad = miResumenMes?.responsabilidad ?? 0
-  const miPagadoMes       = miResumenMes?.pagado ?? 0
-  const costoRealMes      = totalPersonal + miResponsabilidad
-  const bolsilloMes       = totalPersonal + miPagadoMes
-  const diferenciaBolsillo = bolsilloMes - costoRealMes // = miResumenMes.saldo del mes activo
+  const acreedor = resumenPorPersona.find(p => p.saldo >  0.5)
+  const deudor   = resumenPorPersona.find(p => p.saldo < -0.5)
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
@@ -439,181 +328,107 @@ valor:Number(valor)
     return compartidos.reduce((max, g) => (Number(g.valor) > Number(max.valor) ? g : max), compartidos[0])
   }, [compartidos])
 
-  // % que representa el gasto más grande sobre el total del mes — sin esto
-  // el número queda huérfano, no se sabe si es relevante o marginal.
-  const pctGastoMasGrande = gastoMasGrande && totalCompartido > 0
-    ? Math.round((Number(gastoMasGrande.valor) / totalCompartido) * 100)
-    : null
-
   const maxBarra = Math.max(1, ...categoriasComparadas.map(c => Math.max(c.actual, c.anterior)))
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <main className="min-h-screen p-4 pb-28">
+    <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
       <div className="max-w-md mx-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-semibold">Finanzas</h1>
-          <div className="flex items-center gap-1 bg-[var(--surface-2)] rounded-lg px-2 py-1">
-            <TrendingUp size={14} className="text-muted" />
+          <h1 className="text-2xl font-bold">Finanzas</h1>
+          <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-2 py-1">
+            <TrendingUp size={14} className="text-slate-400" />
             <input
               type="month"
               value={mesActivo}
               onChange={e => setMesActivo(e.target.value)}
-              className="bg-transparent text-sm text-secondary outline-none"
+              className="bg-transparent text-sm text-slate-300 outline-none"
             />
           </div>
         </div>
 
         {loading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-2xl h-24 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-2xl h-24 animate-pulse" />)}
           </div>
         ) : (
           <>
-            {/* ── Lo primero que se ve: la CONCLUSIÓN, no los números crudos ── */}
-            <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
+            {/* ── Lo primero que se ve: el balance ──────────────────────── */}
+            <div className="bg-slate-900 rounded-2xl p-4 mb-3 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-muted font-medium uppercase tracking-wide flex items-center gap-1">
+                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide flex items-center gap-1">
                   <Users size={11} /> Gasto compartido de {nombreMes(mesActivo)}
                 </p>
                 {deltaTotalPct !== null && (
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
                     deltaTotalPct > 0 ? "bg-red-500/15 text-red-400" :
                     deltaTotalPct < 0 ? "bg-green-500/15 text-green-400" :
-                                        "bg-[var(--surface-2)] text-muted"
+                                        "bg-slate-700 text-slate-400"
                   }`}>
                     {deltaTotalPct > 0 ? <TrendingUp size={11} /> : deltaTotalPct < 0 ? <TrendingDown size={11} /> : null}
                     {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
                   </span>
                 )}
               </div>
-              {totalCompartido === 0 ? (
-                <div className="-mt-1 space-y-1">
-                  <p className="text-3xl font-bold text-muted">$0</p>
-                  <p className="text-xs text-muted">
-                    Mes nuevo — agrega el primer gasto con el botón +
-                  </p>
-                </div>
-              ) : (
-                <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
-              )}
+              <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
 
-              {/* Conclusión primero — esto es lo único que de verdad importa
-                  al abrir la app: ¿quién le debe a quién? Clítico (te/le)
-                  concuerda con el RECEPTOR de la deuda (acreedor), no con
-                  el sujeto que conjuga el verbo (deudor). */}
+              {resumenPorPersona.map(p => (
+                <div key={p.id} className="bg-slate-800 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium">{esYo(p.id) ? `Tú (${p.nombre})` : p.nombre}</p>
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        p.saldo > 0.5  ? "bg-green-500/15 text-green-400" :
+                        p.saldo < -0.5 ? "bg-red-500/15 text-red-400"    :
+                                         "bg-slate-700 text-slate-400"
+                      }`}
+                    >
+                      {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}`  :
+                       p.saldo < -0.5 ? `− ${fmt(p.saldo)}`  :
+                                        "En paz"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                    <div><p>Pagó</p><p className="text-white font-medium text-sm">{fmt(p.pagado)}</p></div>
+                    <div><p>Le correspondía</p><p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p></div>
+                  </div>
+                </div>
+              ))}
+
               {acreedor && deudor ? (
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
                   <p className="text-sm text-amber-300 text-center">
-                    ⚖️ {nombreSujeto(deudor.id)} {cliticoDeudaPara(acreedor.id)}{" "}
-                    {esYo(deudor.id) ? "debes" : "debe"} a{" "}
+                    ⚖️ {nombreSujeto(deudor.id)} {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
                     {nombreObjeto(acreedor.id)}: <span className="font-bold">{fmt(acreedor.saldo)}</span>
                   </p>
                 </div>
               ) : totalCompartido > 0 ? (
-                <p className="text-xs text-muted text-center py-1">✓ Están en paz</p>
+                <p className="text-xs text-slate-500 text-center py-1">✓ Están en paz</p>
               ) : null}
-
-              {/* Desglose por persona — colapsado por defecto, es el detalle
-                  que respalda la conclusión de arriba, no la conclusión misma. */}
-              <button
-                onClick={() => setMostrarDetalle(v => !v)}
-                className="w-full flex items-center justify-between pt-1"
-              >
-                <p className="text-[11px] text-muted uppercase tracking-wide">Ver detalle por persona</p>
-                <ChevronDown size={14} className={`text-muted transition-transform ${mostrarDetalle ? "rotate-180" : ""}`} />
-              </button>
-
-              {mostrarDetalle && (
-                <div className="space-y-2 pt-1">
-                  {resumenPorPersona.map(p => (
-                    <div key={p.id} className="bg-[var(--surface-2)] rounded-xl p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-sm font-medium">{esYo(p.id) ? "Tú" : p.nombre}</p>
-                        <span
-                          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            p.saldo > 0.5  ? "bg-green-500/15 text-green-400" :
-                            p.saldo < -0.5 ? "bg-red-500/15 text-red-400"    :
-                                             "bg-[var(--surface)] text-muted"
-                          }`}
-                        >
-                          {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}`  :
-                           p.saldo < -0.5 ? `− ${fmt(p.saldo)}`  :
-                                            "En paz"}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-muted">
-                        <div><p>Pagó</p><p className="text-secondary font-medium text-sm">{fmt(p.pagado)}</p></div>
-                        <div><p>Le correspondía</p><p className="text-secondary font-medium text-sm">{fmt(p.responsabilidad)}</p></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
-
-            {/* ── Tu costo real — lo que de verdad te tocó pagar este mes,
-                incluyendo lo privado, sin importar quién puso el dinero de
-                lo compartido. Distinto de la deuda: la deuda es "quién le
-                debe a quién", esto es "cuánto me costó vivir" ── */}
-            {(totalPersonal > 0 || totalCompartido > 0) && (
-              <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
-                <p className="text-xs text-muted font-medium uppercase tracking-wide flex items-center gap-1">
-                  <Lock size={11} /> Tu costo real de {nombreMes(mesActivo)}
-                </p>
-                <div>
-                  <p className="text-3xl font-bold">{fmt(costoRealMes)}</p>
-                  <p className="text-[11px] text-muted mt-1">
-                    Gastos propios + tu parte real de lo compartido
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted">
-                  <div>
-                    <p className="flex items-center gap-1"><Lock size={10} /> Gastos propios</p>
-                    <p className="text-secondary font-medium text-sm">{fmt(totalPersonal)}</p>
-                  </div>
-                  <div>
-                    <p className="flex items-center gap-1"><Users size={10} /> Tu parte de lo compartido</p>
-                    <p className="text-secondary font-medium text-sm">{fmt(miResponsabilidad)}</p>
-                  </div>
-                </div>
-
-                <div className="bg-[var(--surface-2)] rounded-xl p-3 flex items-center justify-between">
-                  <p className="text-xs text-muted">Salió de tu bolsillo este mes</p>
-                  <p className="text-sm font-semibold">{fmt(bolsilloMes)}</p>
-                </div>
-
-                {Math.abs(diferenciaBolsillo) > 0.5 && (
-                  <p className="text-[11px] text-muted text-center leading-relaxed">
-                    {diferenciaBolsillo > 0
-                      ? `Este mes adelantaste ${fmt(diferenciaBolsillo)} de lo compartido — ya suma a tu balance con ${otroPerfil?.nombre ?? "tu pareja"}.`
-                      : `${otroPerfil?.nombre ?? "Tu pareja"} adelantó ${fmt(Math.abs(diferenciaBolsillo))} de lo tuyo este mes — ya suma al balance.`}
-                  </p>
-                )}
-              </div>
-            )}
 
             {/* ── Stats rápidas ──────────────────────────────────────────── */}
             {totalCompartido > 0 && (
               <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="surface border-subtle rounded-xl p-3">
-                  <p className="text-xs text-muted flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
                   <p className="font-bold text-sm">{fmt(promedioDiario)}</p>
                 </div>
-                <div className="surface border-subtle rounded-xl p-3">
-                  <p className="text-xs text-muted flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
                   <p className="font-bold text-sm truncate">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
-                  {gastoMasGrande && (
-                    <p className="text-[11px] text-muted truncate">
-                      {gastoMasGrande.concepto} · {fechaRelativa(gastoMasGrande.fecha)}
-                      {pctGastoMasGrande !== null && ` · ${pctGastoMasGrande}% del mes`}
-                    </p>
-                  )}
+                  {gastoMasGrande && <p className="text-[11px] text-slate-500 truncate">{gastoMasGrande.concepto}</p>}
                 </div>
+              </div>
+            )}
+
+            {totalPersonal > 0 && (
+              <div className="bg-slate-900 rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
+                <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
+                <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
               </div>
             )}
 
@@ -628,7 +443,7 @@ valor:Number(valor)
                     }`}
                   >
                     <span className="text-lg shrink-0">{i.emoji}</span>
-                    <p className="text-sm text-secondary leading-snug">
+                    <p className="text-sm text-slate-300 leading-snug">
                       Gastaste{" "}
                       <span className={`font-semibold ${i.delta > 0 ? "text-red-400" : "text-green-400"}`}>
                         {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
@@ -642,17 +457,17 @@ valor:Number(valor)
 
             {/* ── Desglose por categoría — colapsado por defecto ─────────── */}
             {categoriasComparadas.length > 0 && (
-              <div className="surface border-subtle rounded-2xl mb-4 overflow-hidden">
+              <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
                 <button
                   onClick={() => setMostrarDesglose(v => !v)}
                   className="w-full flex items-center justify-between p-4"
                 >
-                  <p className="text-xs text-muted uppercase tracking-wide">Desglose por categoría</p>
-                  <ChevronDown size={16} className={`text-muted transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
+                  <p className="text-xs text-slate-400 uppercase tracking-wide">Desglose por categoría</p>
+                  <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
                 </button>
                 {mostrarDesglose && (
                   <div className="px-4 pb-4 space-y-3">
-                    <p className="text-[11px] text-muted flex items-center gap-1 -mt-1">
+                    <p className="text-[11px] text-slate-500 flex items-center gap-1 -mt-1">
                       <span className="w-2 h-0.5 bg-white/60 inline-block" /> mes anterior
                     </p>
                     {categoriasComparadas.map(c => {
@@ -661,14 +476,11 @@ valor:Number(valor)
                       return (
                         <div key={c.id}>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-secondary">{c.emoji} {c.nombre}</span>
+                            <span className="text-slate-300">{c.emoji} {c.nombre}</span>
                             <span className="font-medium">{fmt(c.actual)}</span>
                           </div>
-                          <div className="relative h-2.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
-                            <div
-                              className="absolute inset-y-0 left-0 rounded-full transition-all"
-                              style={{ width: `${pctActual}%`, background: "var(--accent)" }}
-                            />
+                          <div className="relative h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="absolute inset-y-0 left-0 bg-blue-600 rounded-full transition-all" style={{ width: `${pctActual}%` }} />
                             {c.anterior > 0 && (
                               <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${Math.min(pctAnterior, 99.5)}%` }} />
                             )}
@@ -683,16 +495,15 @@ valor:Number(valor)
 
             {/* ── Filtros + lista de movimientos ─────────────────────────── */}
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-muted uppercase tracking-wide">Movimientos</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Movimientos</p>
               <div className="flex gap-1.5">
                 {(["todos", "compartido", "privado"] as const).map(f => (
                   <button
                     key={f}
                     onClick={() => setFiltro(f)}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
-                      filtro === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                      filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                     }`}
-                    style={filtro === f ? { background: "var(--accent)" } : undefined}
                   >
                     {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
                   </button>
@@ -705,7 +516,7 @@ valor:Number(valor)
             )}
 
             {gastosFiltrados.length === 0 ? (
-              <div className="text-center py-12 text-muted">
+              <div className="text-center py-12 text-slate-500">
                 <p className="text-3xl mb-2">💸</p>
                 <p className="text-sm">No hay gastos este mes</p>
               </div>
@@ -714,16 +525,15 @@ valor:Number(valor)
                 {gastosFiltrados.map(g => (
                   <div
                     key={g.id}
-                    className={`rounded-xl p-4 flex items-center justify-between group transition surface ${
-                      g.id === editandoId ? "ring-1" : "border-subtle"
+                    className={`rounded-xl p-4 flex items-center justify-between group transition ${
+                      g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
                     }`}
-                    style={g.id === editandoId ? { "--tw-ring-color": "var(--accent)" } as React.CSSProperties : undefined}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{g.concepto}</p>
-                        <p className="text-xs text-muted flex items-center gap-1">
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
                           {g.fecha} ·{" "}
                           {g.visibilidad === "privado" ? (
                             <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
@@ -738,10 +548,10 @@ valor:Number(valor)
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
-                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition">
+                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition">
                         <Pencil size={16} />
                       </button>
-                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition">
+                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -762,11 +572,10 @@ valor:Number(valor)
     right-4
     w-14 h-14
     rounded-full
-    accent-gradient
+    bg-blue-600
     shadow-lg
     flex items-center justify-center
     z-40
-    text-white
   "
 >
   <Plus size={26}/>
@@ -778,15 +587,15 @@ valor:Number(valor)
             <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
             <div
               className={`relative w-full 
-                max-w-md surface rounded-t-3xl 
+                max-w-md bg-slate-900 rounded-t-3xl 
                 p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 
                 transition-transform duration-300 ease-out ${
                 hojaVisible ? "translate-y-0" : "translate-y-full"
               }`}
             >
-              <div className="flex items-center justify-between sticky top-0 surface pb-1">
+              <div className="flex items-center justify-between sticky top-0 bg-slate-900 pb-1">
                 <p className="text-sm font-semibold">{editandoId ? "Editando gasto" : "Nuevo gasto"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary hover:bg-[var(--surface-2)] transition">
+                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition">
                   <X size={18} />
                 </button>
               </div>
@@ -795,9 +604,8 @@ valor:Number(valor)
                 <button
                   onClick={() => setVisibilidad("compartido")}
                   className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    visibilidad === "compartido" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
-                  style={visibilidad === "compartido" ? { background: "var(--accent)" } : undefined}
                 >
                   <Users size={13} /> Compartido
                 </button>
@@ -806,11 +614,10 @@ valor:Number(valor)
                   disabled={editandoAjeno}
                   title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
                   className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    editandoAjeno          ? "bg-[var(--surface-2)]/40 text-muted cursor-not-allowed" :
-                    visibilidad==="privado"? "text-white" :
-                                             "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                    editandoAjeno          ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
+                    visibilidad==="privado"? "bg-blue-600 text-white" :
+                                             "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
-                  style={!editandoAjeno && visibilidad === "privado" ? { background: "var(--accent)" } : undefined}
                 >
                   <Lock size={13} /> Personal
                 </button>
@@ -822,8 +629,8 @@ valor:Number(valor)
                 onKeyDown={e => e.key === "Enter" && guardarGasto()}
                 placeholder="¿En qué gastaste?"
                 autoFocus
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                
+                className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
               />
 
               <div className="grid grid-cols-2 gap-2">
@@ -833,95 +640,47 @@ valor:Number(valor)
                   placeholder="Valor"
                   type="number"
                   min="0"
-                  className="p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                  className="p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <input
                   value={fecha}
                   onChange={e => setFecha(e.target.value)}
                   type="date"
-                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+                  className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
-              <div className="flex gap-2">
-                <select
-                  value={categoriaId}
-                  onChange={e => setCategoriaId(e.target.value)}
-                  className="flex-1 p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                >
-                  <option value="">Sin categoría</option>
-                  {categorias.map(c => (
-                    <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setCreandoCategoria(v => !v)}
-                  title="Nueva categoría"
-                  className={`w-11 h-11 shrink-0 rounded-lg flex items-center justify-center transition ${
-                    creandoCategoria ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={creandoCategoria ? { background: "var(--accent)" } : undefined}
-                >
-                  <Plus size={16} />
-                </button>
-              </div>
-
-              {creandoCategoria && (
-                <div className="flex gap-2 items-center bg-[var(--surface-2)] rounded-lg p-2">
-                  <input
-                    value={nuevaCatEmoji}
-                    onChange={e => setNuevaCatEmoji(e.target.value)}
-                    placeholder="📦"
-                    maxLength={2}
-                    className="w-12 p-2 rounded-lg bg-[var(--surface)] text-center text-lg outline-none focus:ring-1"
-                    style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                  />
-                  <input
-                    value={nuevaCatNombre}
-                    onChange={e => setNuevaCatNombre(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && crearCategoria()}
-                    placeholder="Nombre de la categoría"
-                    autoFocus
-                    className="flex-1 p-2 rounded-lg bg-[var(--surface)] placeholder:text-muted text-sm outline-none focus:ring-1 min-w-0"
-                    style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                  />
-                  <button
-                    type="button"
-                    onClick={crearCategoria}
-                    disabled={guardandoCategoria || !nuevaCatNombre.trim()}
-                    className="px-3 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-40 shrink-0"
-                    style={{ background: "var(--accent)" }}
-                  >
-                    Crear
-                  </button>
-                </div>
-              )}
+              <select
+                value={categoriaId}
+                onChange={e => setCategoriaId(e.target.value)}
+                className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Sin categoría</option>
+                {categorias.map(c => (
+                  <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
+                ))}
+              </select>
 
               {visibilidad === "compartido" && (
-                <div className="space-y-2 pt-2 border-t border-white/5">
-                  <p className="text-xs text-muted">¿Quién puso el dinero?</p>
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <p className="text-xs text-slate-500">¿Quién puso el dinero?</p>
                   <div className="grid grid-cols-2 gap-2">
                     {perfiles.map(p => (
                       <button
                         key={p.id}
                         onClick={() => setPagadoPor(p.id)}
                         className={`p-2 rounded-lg text-xs font-medium truncate transition ${
-                          pagadoPor === p.id ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                          pagadoPor === p.id ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                         }`}
-                        style={pagadoPor === p.id ? { background: "var(--accent)" } : undefined}
                       >
                         {esYo(p.id) ? `Yo (${p.nombre})` : p.nombre}
                       </button>
                     ))}
                   </div>
 
-                  <p className="text-xs text-muted">
+                  <p className="text-xs text-slate-500">
                     ¿Cómo se divide? — a quien pagó le corresponde el{" "}
-                    <span className="text-secondary font-medium">{pctPagador}%</span>
+                    <span className="text-white font-medium">{pctPagador}%</span>
                   </p>
                   <div className="grid grid-cols-3 gap-2">
                     {[
@@ -933,9 +692,8 @@ valor:Number(valor)
                         key={opt.v}
                         onClick={() => setPctPagador(opt.v)}
                         className={`p-2 rounded-lg text-[11px] leading-tight font-medium transition ${
-                          pctPagador === opt.v ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
+                          pctPagador === opt.v ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                         }`}
-                        style={pctPagador === opt.v ? { background: "var(--accent)" } : undefined}
                       >
                         {opt.label}
                       </button>
@@ -943,12 +701,12 @@ valor:Number(valor)
                   </div>
 
                   {valor && Number(valor) > 0 && pagadoPor && (
-                    <div className="bg-[var(--surface-2)] rounded-lg px-3 py-2 text-xs text-muted">
+                    <div className="bg-slate-800 rounded-lg px-3 py-2 text-xs text-slate-400">
                       {pctPagador === 100
                         ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
                         : pctPagador === 0
-                        ? <span>{nombreSujeto(pagadoPor)} adelanta <span className="text-secondary">{fmt(Number(valor))}</span> que es responsabilidad de {nombreObjeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)}</span>
-                        : <span>{nombreSujeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)} debe <span className="text-secondary">{fmt(Number(valor) * (100 - pctPagador) / 100)}</span></span>
+                        ? <span>{nombreSujeto(pagadoPor)} adelanta <span className="text-white">{fmt(Number(valor))}</span> que es responsabilidad de {nombreObjeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)}</span>
+                        : <span>{nombreSujeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)} debe <span className="text-white">{fmt(Number(valor) * (100 - pctPagador) / 100)}</span></span>
                       }
                     </div>
                   )}
@@ -958,7 +716,7 @@ valor:Number(valor)
               <button
                 onClick={guardarGasto}
                 disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
-                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
               >
                 <Plus size={16} />
                 {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}

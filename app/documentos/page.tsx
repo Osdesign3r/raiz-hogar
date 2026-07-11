@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase"
 import type { Documento, DocumentoCategoria, DocumentoVisibilidad, Miembro } from "@/lib/types"
 import {
   Upload, Trash2, Pencil, X, Search, Lock, Users,
-  AlertTriangle, Clock, ExternalLink, Plus, FileText,
+  AlertTriangle, Clock, ExternalLink, Plus, FileText, FileQuestion,
 } from "lucide-react"
 import ConfirmDialog from "@/components/ConfirmDialog"
 
@@ -27,6 +27,16 @@ const MAX_BYTES = MAX_MB * 1024 * 1024
 
 const sanitizar = (nombre: string) =>
   nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9.\-]/g, "_")
+
+// ── Visor flotante: qué tipo de contenido renderizar dentro del modal ──────
+type TipoVisor = "pdf" | "imagen" | "otro"
+const EXT_IMAGEN = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
+const tipoVisorDe = (nombreArchivo: string): TipoVisor => {
+  const ext = nombreArchivo.split(".").pop()?.toLowerCase() ?? ""
+  if (ext === "pdf") return "pdf"
+  if (EXT_IMAGEN.includes(ext)) return "imagen"
+  return "otro"
+}
 
 export default function DocumentosPage() {
   const [documentos, setDocumentos] = useState<Documento[]>([])
@@ -58,6 +68,19 @@ export default function DocumentosPage() {
   const [notas,        setNotas]        = useState("")
   const [archivo,      setArchivo]      = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Visor flotante ───────────────────────────────────────────────────────
+  const [visor, setVisor] = useState<{ url: string; nombre: string; tipo: TipoVisor } | null>(null)
+  const [visorCargando, setVisorCargando] = useState(false)
+  const [visorVisible, setVisorVisible] = useState(false)
+
+  useEffect(() => {
+    if (visor) {
+      const t = setTimeout(() => setVisorVisible(true), 10)
+      return () => clearTimeout(t)
+    }
+    setVisorVisible(false)
+  }, [visor])
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
@@ -159,9 +182,6 @@ export default function DocumentosPage() {
 
     try {
       if (archivo) {
-        // Validar tamaño antes de intentar subir — Supabase devuelve un error
-        // poco descriptivo si se supera el límite del bucket, mejor cortarlo acá
-        // con un mensaje que el usuario entienda.
         if (archivo.size > MAX_BYTES) {
           setError(`El archivo supera el límite de ${MAX_MB} MB. Comprime o divide el documento.`)
           setGuardando(false)
@@ -170,10 +190,7 @@ export default function DocumentosPage() {
 
         const nuevoPath = `${hogarId}/${crypto.randomUUID()}-${sanitizar(archivo.name)}`
 
-        // Subida con progreso — onUploadProgress devuelve loaded/total en bytes.
-        // Usamos XMLHttpRequest directo vía fetch no soporta onprogress en todos
-        // los contextos, pero el SDK de Supabase Storage sí expone onUploadProgress.
-        setProgreso(1) // indeterminate — el SDK no expone onUploadProgress en esta versión
+        setProgreso(1)
         const { error: upErr } = await supabase.storage
           .from("documentos")
           .upload(nuevoPath, archivo, { contentType: archivo.type })
@@ -224,12 +241,22 @@ export default function DocumentosPage() {
     setAEliminar(null)
   }
 
+  // Ya no usa window.open — en modo standalone de Android eso te saca de la
+  // app a Chrome externo. Ahora abre el visor flotante dentro de la propia PWA.
   const verArchivo = async (d: Documento) => {
+    setVisorCargando(true)
+    setError(null)
     const { data, error: err } = await supabase.storage
       .from("documentos")
-      .createSignedUrl(d.archivo_url, 60)
+      .createSignedUrl(d.archivo_url, 300)
+    setVisorCargando(false)
     if (err || !data) { setError("No se pudo abrir el archivo."); return }
-    window.open(data.signedUrl, "_blank")
+    setVisor({ url: data.signedUrl, nombre: d.nombre, tipo: tipoVisorDe(d.archivo_url) })
+  }
+
+  const cerrarVisor = () => {
+    setVisorVisible(false)
+    setTimeout(() => setVisor(null), 200)
   }
 
   const vencidos = useMemo(
@@ -467,8 +494,6 @@ export default function DocumentosPage() {
                 />
               </label>
 
-              {/* Indicador de subida — el SDK no expone progreso real en esta versión,
-                  así que mostramos un pulso animado mientras dura la operación */}
               {progreso !== null && (
                 <div className="flex items-center gap-2 text-[11px] text-muted">
                   <div className="h-1.5 flex-1 bg-[var(--surface-2)] rounded-full overflow-hidden">
@@ -590,6 +615,75 @@ export default function DocumentosPage() {
         />
 
       </div>
+
+      {/* ── Visor flotante — reemplaza el window.open que sacaba de la PWA ── */}
+      {visor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70" onClick={cerrarVisor} />
+          <div
+            className={`relative w-full max-w-lg surface border-subtle rounded-2xl overflow-hidden max-h-[90dvh] flex flex-col shadow-2xl transition-all duration-200 ease-out ${
+              visorVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+            }`}
+          >
+            <div className="flex items-center justify-between p-3 border-b border-white/5 shrink-0">
+              <p className="text-sm font-medium truncate pr-2">{visor.nombre}</p>
+             <div className="flex items-center gap-1 shrink-0">
+                <a
+                  href={visor.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] transition"
+                  title="Abrir externamente"
+                >
+                  <ExternalLink size={15} />
+                </a>
+                <button
+                  onClick={cerrarVisor}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] transition"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-[50vh] bg-black/20 flex items-center justify-center overflow-auto">
+              {visor.tipo === "pdf" && (
+                <iframe src={visor.url} className="w-full h-full min-h-[70vh]" title={visor.nombre} />
+              )}
+
+              {visor.tipo === "imagen" && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={visor.url} alt={visor.nombre} className="max-w-full max-h-[75vh] object-contain" />
+              )}
+
+              {visor.tipo === "otro" && (
+                <div className="text-center p-8">
+                  <FileQuestion size={40} className="mx-auto mb-3 text-muted" />
+                  <p className="text-sm text-secondary mb-1">
+                    Este tipo de archivo no se puede previsualizar aquí
+                  </p>
+                  <a
+                   href={visor.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm mt-3 px-4 py-2 rounded-lg accent-gradient text-white"
+                  >
+                    <ExternalLink size={14} />
+                    Abrir externamente
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {visorCargando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        </div>
+      )}
+
     </main>
   )
 }
