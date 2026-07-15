@@ -24,8 +24,9 @@ export default function ConfiguracionPage() {
   const [guardado,  setGuardado]  = useState(false)
   const [error,     setError]     = useState<string | null>(null)
 
-  const [estadoPush,   setEstadoPush]   = useState<EstadoPush>("unsupported")
+  const [estadoPush,    setEstadoPush]    = useState<EstadoPush>("unsupported")
   const [activandoPush, setActivandoPush] = useState(false)
+  const [resultadoPush, setResultadoPush] = useState<string | null>(null)
 
   useEffect(() => {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -40,14 +41,42 @@ export default function ConfiguracionPage() {
     // Safari, pedirlo fuera de un gesto directo del usuario no muestra el
     // diálogo y puede quemar el permiso a "denied" para siempre.
     setActivandoPush(true)
+    setResultadoPush(null)
+    setError(null)
     const token = await requestNotificationPermission()
     setEstadoPush(typeof window !== "undefined" ? (Notification.permission as EstadoPush) : "default")
     if (!token) {
       setError(
         Notification.permission === "denied"
           ? "iOS bloqueó el permiso. Bórrala del inicio y vuelve a 'Agregar a inicio' desde Safari para reintentar."
-          : "No se pudo activar. Intenta de nuevo."
+          : "No se pudo activar. Revisa 'Verificar token guardado' abajo para ver el motivo exacto."
       )
+    } else {
+      setResultadoPush(`Token guardado: ...${token.slice(-8)}`)
+    }
+    setActivandoPush(false)
+  }
+
+  // Botón visible SIEMPRE, incluso con permiso ya concedido — el permiso del
+  // navegador no garantiza que el token FCM se haya guardado en Supabase.
+  // Esto fuerza el intento y muestra el resultado real en pantalla, en vez
+  // de que muera en un console.error inaccesible en el celular.
+  const verificarToken = async () => {
+    setActivandoPush(true)
+    setResultadoPush(null)
+    setError(null)
+    try {
+      const { refrescarTokenSiYaHabilitado } = await import("@/lib/firebase")
+      const token = await refrescarTokenSiYaHabilitado()
+      if (token) {
+        setResultadoPush(`✓ Token guardado correctamente: ...${token.slice(-8)}`)
+      } else {
+        setResultadoPush(null)
+        setError("El navegador no devolvió un token. Puede ser la VAPID key, el service worker, o el permiso del sistema operativo.")
+      }
+    } catch (e) {
+      setResultadoPush(null)
+      setError("Error real: " + (e instanceof Error ? e.message : String(e)))
     }
     setActivandoPush(false)
   }
@@ -212,7 +241,7 @@ export default function ConfiguracionPage() {
             <div className="min-w-0 flex-1">
               <p className="font-medium text-sm">Notificaciones push</p>
               <p className="text-xs text-secondary">
-                {estadoPush === "granted"  ? "Activadas en este dispositivo" :
+                {estadoPush === "granted"  ? "Permiso concedido en este dispositivo" :
                  estadoPush === "denied"   ? "Bloqueadas por el sistema" :
                  estadoPush === "unsupported" ? "No disponibles en este navegador" :
                                               "Aún no activadas en este dispositivo"}
@@ -229,6 +258,23 @@ export default function ConfiguracionPage() {
               <Bell size={15} />
               {activandoPush ? "Activando..." : "Activar notificaciones"}
             </button>
+          )}
+
+          {/* Permiso ya concedido no garantiza que el token esté guardado en la
+              base de datos — este botón fuerza y muestra el resultado real. */}
+          {estadoPush === "granted" && (
+            <button
+              onClick={verificarToken}
+              disabled={activandoPush}
+              className="w-full surface border-subtle disabled:opacity-40 p-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition"
+            >
+              <BellRing size={15} />
+              {activandoPush ? "Verificando..." : "Verificar / reintentar guardado del token"}
+            </button>
+          )}
+
+          {resultadoPush && (
+            <p className="text-[11px] text-emerald-400 leading-relaxed">{resultadoPush}</p>
           )}
 
           {estadoPush === "denied" && (
