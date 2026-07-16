@@ -36,6 +36,7 @@ type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: n
 export default function FinanzasPage() {
   const [gastos,            setGastos]            = useState<Gasto[]>([])
   const [gastosMesAnterior, setGastosMesAnterior]  = useState<Gasto[]>([])
+  const [gastosBalance,     setGastosBalance]      = useState<Gasto[]>([])
   const [categorias,        setCategorias]         = useState<Categoria[]>([])
   const [perfiles,          setPerfiles]           = useState<Perfil[]>([])
   const [userId,            setUserId]             = useState<string | null>(null)
@@ -71,24 +72,36 @@ export default function FinanzasPage() {
     const fechaInicioAnt = `${mesAnterior}-01`
     const fechaFinAnt    = ultimoDiaMes(mesAnterior)
 
-    const [{ data: { user } }, { data: perfilesData }, { data: cats }, { data: gastsData, error: gastosErr }, { data: gastsAntData }] =
-      await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
-        supabase.from("categorias").select("*").order("nombre"),
-        supabase
-          .from("gastos")
-          .select("*, categorias(id, nombre, emoji)")
-          .gte("fecha", fechaInicio)
-          .lte("fecha", fechaFin)
-          .order("fecha", { ascending: false }),
-        supabase
-          .from("gastos")
-          .select("*, categorias(id, nombre, emoji)")
-          .eq("visibilidad", "compartido")
-          .gte("fecha", fechaInicioAnt)
-          .lte("fecha", fechaFinAnt),
-      ])
+    const [
+      { data: { user } },
+      { data: perfilesData },
+      { data: cats },
+      { data: gastsData, error: gastosErr },
+      { data: gastsAntData },
+      { data: gastsBalData },
+    ] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
+      supabase.from("categorias").select("*").order("nombre"),
+      supabase
+        .from("gastos")
+        .select("*, categorias(id, nombre, emoji)")
+        .gte("fecha", fechaInicio)
+        .lte("fecha", fechaFin)
+        .order("fecha", { ascending: false }),
+      supabase
+        .from("gastos")
+        .select("*, categorias(id, nombre, emoji)")
+        .eq("visibilidad", "compartido")
+        .gte("fecha", fechaInicioAnt)
+        .lte("fecha", fechaFinAnt),
+      // Sin filtro de fecha — saldo corrido histórico, igual que en Home.
+      // Home y Finanzas deben mostrar exactamente el mismo balance.
+      supabase
+        .from("gastos")
+        .select("id, valor, pagado_por, porcentaje_pagador")
+        .eq("visibilidad", "compartido"),
+    ])
 
     if (gastosErr) {
       setError("Error cargando gastos. Intenta de nuevo.")
@@ -98,6 +111,7 @@ export default function FinanzasPage() {
       setCategorias(cats ?? [])
       setGastos((gastsData ?? []) as Gasto[])
       setGastosMesAnterior((gastsAntData ?? []) as Gasto[])
+      setGastosBalance((gastsBalData ?? []) as Gasto[])
     }
     setLoading(false)
   }, [mesActivo])
@@ -237,12 +251,17 @@ export default function FinanzasPage() {
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
+  // Ojo: usa gastosBalance (histórico completo, sin filtro de mes), no
+  // compartidos (que sí está filtrado por mesActivo). El saldo de quién le
+  // debe a quién es una cuenta corrida, no algo que reinicia cada mes —
+  // mismo criterio que ya usa Home. Antes esto usaba `compartidos` y por
+  // eso Home y Finanzas mostraban números distintos.
   const resumenPorPersona = useMemo((): ResumenPersona[] => {
     const pagado: Record<string, number> = {}
     const resp:   Record<string, number> = {}
     perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
 
-    compartidos.forEach(g => {
+    gastosBalance.forEach(g => {
       const v   = Number(g.valor) || 0
       const pct = g.porcentaje_pagador ?? 50
       if (!g.pagado_por || !(g.pagado_por in pagado)) return
@@ -258,7 +277,7 @@ export default function FinanzasPage() {
       responsabilidad: resp[p.id]   ?? 0,
       saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
     }))
-  }, [compartidos, perfiles])
+  }, [gastosBalance, perfiles])
 
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
