@@ -8,6 +8,7 @@ import {
   AlertTriangle, Clock, ExternalLink, Plus, FileText, FileQuestion,
 } from "lucide-react"
 import ConfirmDialog from "@/components/ConfirmDialog"
+import PdfViewer from "@/components/documentos/PdfViewer"
 
 const CATEGORIAS: DocumentoCategoria[] = [
   "Familia", "Salud", "Educacion", "Finanzas", "Legal", "Hogar", "Vehiculos", "Mascotas", "Otros",
@@ -648,7 +649,7 @@ export default function DocumentosPage() {
 
             <div className="flex-1 min-h-[50vh] bg-black/20 flex items-center justify-center overflow-auto">
               {visor.tipo === "pdf" && (
-                <iframe src={visor.url} className="w-full h-full min-h-[70vh]" title={visor.nombre} />
+                <PdfViewer url={visor.url} />
               )}
 
               {visor.tipo === "imagen" && (
