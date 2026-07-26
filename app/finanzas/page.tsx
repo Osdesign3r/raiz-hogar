@@ -136,8 +136,10 @@ export default function FinanzasPage() {
     (id: string | null) => esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
+  // Siempre se usa después de preposición ("a ti", "responsabilidad de ti") —
+  // por eso "ti" y no "tú". "a tú" es un error de gramática, no una variante.
   const nombreObjeto = useCallback(
-    (id: string | null) => esYo(id) ? "tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
     [perfiles, esYo]
   )
 
