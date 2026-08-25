@@ -22,24 +22,53 @@ firebase.initializeApp({
 const messaging = firebase.messaging()
 
 messaging.onBackgroundMessage((payload) => {
-  self.registration.showNotification(payload.notification.title, {
-    body: payload.notification.body,
+  // El edge function manda mensajes SOLO-DATA (sin campo `notification`) a
+  // propósito — mandar ambos hacía que Firebase mostrara la notificación
+  // dos veces. Por eso el título y el cuerpo vienen dentro de payload.data,
+  // NO en payload.notification (que ya ni siquiera llega, así que leerlo
+  // revienta esta función en silencio y no se muestra nada — eso es lo que
+  // estaba pasando).
+  const datos = payload.data || {}
+
+  self.registration.showNotification(datos.titulo || "LAZO", {
+    body: datos.mensaje || "",
     icon: "/icon-192.png",
+    // Lo que notificationclick usa más abajo para saber a dónde navegar.
+    data: datos,
   })
+})
+
+// Al tocar la notificación: si ya hay una pestaña de la app abierta, la
+// enfoca y navega ahí en vez de abrir una segunda instancia de la PWA
+// (en Android standalone eso deja dos ícoos "fantasma" en recientes).
+// Si no hay ninguna abierta, abre una nueva directo en la ruta correcta.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+
+  const ruta = (event.notification.data && event.notification.data.url) || "/"
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if ("focus" in client) {
+            client.focus()
+            if ("navigate" in client) return client.navigate(ruta)
+            return
+          }
+        }
+        if (self.clients.openWindow) return self.clients.openWindow(ruta)
+      })
+  )
 })
 
 self.addEventListener("install", () => {
   console.log("SW instalado")
-  // Sin esto, un SW nuevo se queda en estado "waiting" para siempre si la
-  // PWA no se cierra por completo — y una PWA instalada casi nunca se
-  // cierra. skipWaiting() lo activa apenas termina de instalarse, sin
-  // esperar a que el usuario mate la app.
   self.skipWaiting()
 })
 
 self.addEventListener("activate", (event) => {
-  // clients.claim() hace que el SW nuevo tome control de las pestañas ya
-  // abiertas de inmediato, en vez de esperar a la próxima navegación.
   event.waitUntil(self.clients.claim())
 })
 

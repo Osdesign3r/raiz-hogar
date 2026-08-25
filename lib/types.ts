@@ -16,6 +16,8 @@ import type { Tables } from "./database.types"
 
 export type Categoria = Tables<"categorias">
 
+export type Presupuesto = Tables<"presupuestos">
+
 // nombre y created_at son nullable en el schema (no hay NOT NULL), pero en la
 // práctica siempre están: nombre lo llena el trigger handle_new_user desde el
 // perfil de Google al registrarse, created_at tiene default now(). Si algún

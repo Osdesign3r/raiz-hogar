@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { supabase } from "@/lib/supabase"
-import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad } from "@/lib/types"
+import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad, Presupuesto } from "@/lib/types"
 import {
   Trash2, Plus, TrendingUp, TrendingDown, Lock, Users, Pencil, X,
-  ChevronDown, Flame, CalendarDays,
+  ChevronDown, Flame, CalendarDays, Target, AlertTriangle, Check,
 } from "lucide-react"
 import { calcularBalance }
 from "@/lib/finanzas"
@@ -38,11 +38,18 @@ export default function FinanzasPage() {
   const [gastosMesAnterior, setGastosMesAnterior]  = useState<Gasto[]>([])
   const [gastosBalance,     setGastosBalance]      = useState<Gasto[]>([])
   const [categorias,        setCategorias]         = useState<Categoria[]>([])
+  const [presupuestos,      setPresupuestos]       = useState<Presupuesto[]>([])
+  const [hogarId,           setHogarId]            = useState<string | null>(null)
   const [perfiles,          setPerfiles]           = useState<Perfil[]>([])
   const [userId,            setUserId]             = useState<string | null>(null)
   const [loading,           setLoading]            = useState(true)
   const [guardando,         setGuardando]          = useState(false)
   const [error,             setError]              = useState<string | null>(null)
+
+  const [mostrarPresupuestos,   setMostrarPresupuestos]   = useState(false)
+  const [editandoPresupuestoId, setEditandoPresupuestoId] = useState<string | null>(null) // categoria_id
+  const [montoPresupuestoInput, setMontoPresupuestoInput] = useState("")
+  const [guardandoPresupuesto,  setGuardandoPresupuesto]  = useState(false)
 
   const [modalAbierto,    setModalAbierto]    = useState(false)
   const [hojaVisible,     setHojaVisible]     = useState(false)
@@ -79,6 +86,8 @@ export default function FinanzasPage() {
       { data: gastsData, error: gastosErr },
       { data: gastsAntData },
       { data: gastsBalData },
+      { data: hogarData },
+      { data: presData },
     ] = await Promise.all([
       supabase.auth.getUser(),
       supabase.from("perfiles").select("id, nombre, email, avatar_url, accent_color, created_at"),
@@ -101,6 +110,8 @@ export default function FinanzasPage() {
         .from("gastos")
         .select("id, valor, pagado_por, porcentaje_pagador")
         .eq("visibilidad", "compartido"),
+      supabase.from("hogar_usuarios").select("hogar_id").limit(1).single(),
+      supabase.from("presupuestos").select("*"),
     ])
 
     if (gastosErr) {
@@ -112,6 +123,8 @@ export default function FinanzasPage() {
       setGastos((gastsData ?? []) as Gasto[])
       setGastosMesAnterior((gastsAntData ?? []) as Gasto[])
       setGastosBalance((gastsBalData ?? []) as Gasto[])
+      setHogarId(hogarData?.hogar_id ?? null)
+      setPresupuestos(presData ?? [])
     }
     setLoading(false)
   }, [mesActivo])
@@ -321,6 +334,88 @@ export default function FinanzasPage() {
       .sort((x, y) => y.actual - x.actual)
   }, [compartidos, gastosMesAnterior])
 
+  // ── Presupuestos ─────────────────────────────────────────────────────────
+
+  type ProgresoPresupuesto = {
+    categoriaId: string
+    nombre: string
+    emoji: string
+    monto: number
+    actual: number
+    pct: number
+    estado: "ok" | "cerca" | "excedido"
+  }
+
+  const progresoPresupuestos = useMemo((): ProgresoPresupuesto[] => {
+    const actualMap = agruparPorCategoria(compartidos)
+    return presupuestos
+      .map(p => {
+        const cat  = categorias.find(c => c.id === p.categoria_id)
+        const dato = actualMap.get(p.categoria_id)
+        const actual = dato?.total ?? 0
+        const monto  = Number(p.monto)
+        const pct    = monto > 0 ? Math.round((actual / monto) * 100) : 0
+        return {
+          categoriaId: p.categoria_id,
+          nombre: cat?.nombre ?? dato?.nombre ?? "Categoría",
+          emoji:  cat?.emoji  ?? dato?.emoji  ?? "📦",
+          monto,
+          actual,
+          pct,
+          estado: (pct >= 100 ? "excedido" : pct >= 80 ? "cerca" : "ok") as ProgresoPresupuesto["estado"],
+        }
+      })
+      .sort((a, b) => b.pct - a.pct)
+  }, [presupuestos, categorias, compartidos])
+
+  // Categorías que ya tuvieron gasto compartido este mes pero todavía no
+  // tienen presupuesto puesto — para ofrecerlas como sugerencia rápida en
+  // vez de obligar a buscarlas en un selector largo.
+  const categoriasSinPresupuesto = useMemo(() => {
+    const conPresupuesto = new Set(presupuestos.map(p => p.categoria_id))
+    return categoriasComparadas
+      .filter(c => c.id !== "_sin" && c.actual > 0 && !conPresupuesto.has(c.id))
+  }, [categoriasComparadas, presupuestos])
+
+  const abrirEdicionPresupuesto = (categoriaId: string, montoActual?: number) => {
+    setEditandoPresupuestoId(categoriaId)
+    setMontoPresupuestoInput(montoActual ? String(montoActual) : "")
+  }
+
+  const cerrarEdicionPresupuesto = () => {
+    setEditandoPresupuestoId(null)
+    setMontoPresupuestoInput("")
+  }
+
+  const guardarPresupuesto = async () => {
+    if (!editandoPresupuestoId || !hogarId) return
+    const monto = Number(montoPresupuestoInput)
+    if (!monto || monto <= 0) return
+
+    setGuardandoPresupuesto(true)
+    const { error: err } = await supabase
+      .from("presupuestos")
+      .upsert(
+        { hogar_id: hogarId, categoria_id: editandoPresupuestoId, monto },
+        { onConflict: "hogar_id,categoria_id" }
+      )
+
+    if (!err) {
+      cerrarEdicionPresupuesto()
+      await cargarDatos()
+    }
+    setGuardandoPresupuesto(false)
+  }
+
+  const eliminarPresupuesto = async (categoriaId: string) => {
+    if (!confirm("¿Quitar el presupuesto de esta categoría?")) return
+    const { error: err } = await supabase
+      .from("presupuestos")
+      .delete()
+      .eq("categoria_id", categoriaId)
+    if (!err) setPresupuestos(prev => prev.filter(p => p.categoria_id !== categoriaId))
+  }
+
   const insights = useMemo(() => {
     return categoriasComparadas
       .filter(c => c.anterior >= 10000)
@@ -475,6 +570,161 @@ export default function FinanzasPage() {
                 ))}
               </div>
             )}
+
+            {/* ── Presupuestos por categoría ───────────────────────────────── */}
+            <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
+              <button
+                onClick={() => setMostrarPresupuestos(v => !v)}
+                className="w-full flex items-center justify-between p-4"
+              >
+                <p className="text-xs text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <Target size={12} /> Presupuestos
+                  {progresoPresupuestos.some(p => p.estado === "excedido") && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  )}
+                </p>
+                <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarPresupuestos ? "rotate-180" : ""}`} />
+              </button>
+
+              {mostrarPresupuestos && (
+                <div className="px-4 pb-4 space-y-3">
+                  {progresoPresupuestos.length === 0 && categoriasSinPresupuesto.length === 0 && (
+                    <p className="text-xs text-slate-500 py-2">
+                      Sin presupuestos todavía. Se activan solo en categorías donde ya hay gasto compartido este mes.
+                    </p>
+                  )}
+
+                  {progresoPresupuestos.map(p => (
+                    <div key={p.categoriaId}>
+                      {editandoPresupuestoId === p.categoriaId ? (
+                        <div className="bg-slate-800 rounded-lg p-3 space-y-2">
+                          <p className="text-xs text-slate-400">{p.emoji} {p.nombre} — presupuesto mensual</p>
+                          <div className="flex gap-2">
+                            <input
+                              value={montoPresupuestoInput}
+                              onChange={e => setMontoPresupuestoInput(e.target.value)}
+                              onKeyDown={e => e.key === "Enter" && guardarPresupuesto()}
+                              type="number"
+                              min="0"
+                              placeholder="Monto mensual"
+                              autoFocus
+                              className="flex-1 p-2.5 rounded-lg bg-slate-900 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={guardarPresupuesto}
+                              disabled={guardandoPresupuesto || !montoPresupuestoInput}
+                              className="px-3 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 flex items-center justify-center"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={cerrarEdicionPresupuesto}
+                              className="px-3 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="flex justify-between items-center text-xs mb-1">
+                            <span className="text-slate-300 flex items-center gap-1">
+                              {p.emoji} {p.nombre}
+                              {p.estado === "excedido" && <AlertTriangle size={11} className="text-red-400" />}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${
+                                p.estado === "excedido" ? "text-red-400" :
+                                p.estado === "cerca"    ? "text-amber-400" :
+                                                           "text-slate-400"
+                              }`}>
+                                {fmt(p.actual)} / {fmt(p.monto)}
+                              </span>
+                              <button onClick={() => abrirEdicionPresupuesto(p.categoriaId, p.monto)} className="text-slate-500 hover:text-slate-300">
+                                <Pencil size={12} />
+                              </button>
+                              <button onClick={() => eliminarPresupuesto(p.categoriaId)} className="text-slate-500 hover:text-red-400">
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                p.estado === "excedido" ? "bg-red-500" :
+                                p.estado === "cerca"    ? "bg-amber-500" :
+                                                           "bg-blue-500"
+                              }`}
+                              style={{ width: `${Math.min(p.pct, 100)}%` }}
+                            />
+                          </div>
+                          {p.estado === "excedido" && (
+                            <p className="text-[11px] text-red-400 mt-1">
+                              Te pasaste por {fmt(p.actual - p.monto)} este mes.
+                            </p>
+                          )}
+                          {p.estado === "cerca" && (
+                            <p className="text-[11px] text-amber-400 mt-1">
+                              Vas en {p.pct}% del presupuesto.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {categoriasSinPresupuesto.length > 0 && (
+                    <div className="pt-1">
+                      <p className="text-[11px] text-slate-500 mb-2">Ponerle presupuesto a:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {categoriasSinPresupuesto.map(c => (
+                          <button
+                            key={c.id}
+                            onClick={() => abrirEdicionPresupuesto(c.id)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 flex items-center gap-1"
+                          >
+                            {c.emoji} {c.nombre}
+                          </button>
+                        ))}
+                      </div>
+                      {editandoPresupuestoId && !progresoPresupuestos.some(p => p.categoriaId === editandoPresupuestoId) && (
+                        <div className="bg-slate-800 rounded-lg p-3 space-y-2 mt-2">
+                          <p className="text-xs text-slate-400">
+                            {categorias.find(c => c.id === editandoPresupuestoId)?.emoji}{" "}
+                            {categorias.find(c => c.id === editandoPresupuestoId)?.nombre} — presupuesto mensual
+                          </p>
+                          <div className="flex gap-2">
+                            <input
+                              value={montoPresupuestoInput}
+                              onChange={e => setMontoPresupuestoInput(e.target.value)}
+                              onKeyDown={e => e.key === "Enter" && guardarPresupuesto()}
+                              type="number"
+                              min="0"
+                              placeholder="Monto mensual"
+                              autoFocus
+                              className="flex-1 p-2.5 rounded-lg bg-slate-900 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={guardarPresupuesto}
+                              disabled={guardandoPresupuesto || !montoPresupuestoInput}
+                              className="px-3 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 flex items-center justify-center"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={cerrarEdicionPresupuesto}
+                              className="px-3 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* ── Desglose por categoría — colapsado por defecto ─────────── */}
             {categoriasComparadas.length > 0 && (
