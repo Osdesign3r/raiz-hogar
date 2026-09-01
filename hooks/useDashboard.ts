@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { calcularBalance } from "@/lib/finanzas"
+import { fechaLocal } from "@/lib/fecha"
 
 export interface TimelineItem {
   id: string
@@ -31,10 +32,6 @@ const MAX_TIMELINE = 3
 const MAX_ATRASADOS_EN_TIMELINE = 2
 const MAX_ACTIVITY = 3
 
-const hoy = new Date()
-const fechaInicio = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`
-const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().split("T")[0]
-const hoyStr = hoy.toISOString().split("T")[0]
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n)
@@ -55,6 +52,15 @@ export function useDashboard(): DashboardData {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { setLoading(false); return }
 
+    // Calculadas acá adentro, no a nivel de módulo: si el bundle queda
+    // cargado en memoria pasada la medianoche (una PWA instalada no se
+    // recarga sola), unas constantes de módulo se quedarían congeladas en
+    // el día de ayer. fechaLocal() usa hora local, no UTC — ver lib/fecha.ts.
+    const hoyDate    = new Date()
+    const hoyStr      = fechaLocal(hoyDate)
+    const fechaInicio = `${hoyDate.getFullYear()}-${String(hoyDate.getMonth() + 1).padStart(2, "0")}-01`
+    const ultimoDia   = fechaLocal(new Date(hoyDate.getFullYear(), hoyDate.getMonth() + 1, 0))
+
     const [perfilRes, perfilesRes, gastosRes, eventosRes, documentosRes, gastosBalRes] = await Promise.all([
       supabase.from("perfiles").select("nombre").eq("id", session.user.id).single(),
       supabase.from("perfiles").select("id,nombre"),
@@ -66,14 +72,15 @@ export function useDashboard(): DashboardData {
         .order("fecha", { ascending: true })
         .limit(20),
       supabase.from("documentos").select("id,nombre,created_at,created_by").order("created_at", { ascending: false }).limit(MAX_ACTIVITY),
-      // Sin filtro de fecha — saldo corrido histórico, igual que en Finanzas.
-      // Home y Finanzas deben mostrar exactamente el mismo número.
+      // Sin filtro de fecha, a propósito — la deuda es una cuenta corrida
+      // que sube o se empareja, no algo que reinicia cada mes. Finanzas usa
+      // el mismo criterio para este número — los dos deben coincidir.
       supabase.from("gastos").select("id,valor,pagado_por,porcentaje_pagador").eq("visibilidad", "compartido"),
     ])
 
     const perfiles = perfilesRes.data ?? []
-    const gastos = gastosRes.data ?? []          // solo mes actual — para totalMes y actividad
-    const gastosBalance = gastosBalRes.data ?? [] // todos los meses — para el saldo corrido
+    const gastos = gastosRes.data ?? []           // del mes — solo para totalMes y actividad
+    const gastosBalance = gastosBalRes.data ?? []  // histórico completo — solo para la deuda
     const eventos = eventosRes.data ?? []
     const documentos = documentosRes.data ?? []
 
@@ -92,11 +99,16 @@ export function useDashboard(): DashboardData {
     // Mismo balance, contado distinto según quién lo lee — esto es lo que
     // lo separa de un estado de cuenta. "X le debe a Y" es neutral en el
     // papel pero suena a cobranza cuando lo lees en tu propia pantalla.
+    //
+    // Histórico a propósito (gastosBalance, sin filtro de fecha) — la deuda
+    // sube o se empareja con el tiempo, no se resetea porque cambió el mes.
+    // Por eso el texto de abajo ya NO dice "este mes": ese "este mes" era
+    // el bug — sonaba a que se limpiaba solo, y no es así.
     const b = calcularBalance(perfiles, gastosBalance)
     if (b.acreedor && b.deudor) {
       const monto = fmt(b.diferencia)
       if (b.acreedor.id === session.user.id) {
-        setBalance(`Vas ${monto} adelante este mes`)
+        setBalance(`Vas ${monto} adelante`)
       } else if (b.deudor.id === session.user.id) {
         setBalance(`Te faltan ${monto} para emparejar`)
       } else {

@@ -9,12 +9,13 @@ import {
 } from "lucide-react"
 import { calcularBalance }
 from "@/lib/finanzas"
+import { fechaLocal } from "@/lib/fecha"
 
-const hoy = () => new Date().toISOString().split("T")[0]
+const hoy = () => fechaLocal()
 
 const ultimoDiaMes = (mes: string) => {
   const [año, m] = mes.split("-").map(Number)
-  return new Date(año, m, 0).toISOString().split("T")[0]
+  return fechaLocal(new Date(año, m, 0))
 }
 
 const mesAnteriorDe = (mes: string) => {
@@ -104,8 +105,10 @@ export default function FinanzasPage() {
         .eq("visibilidad", "compartido")
         .gte("fecha", fechaInicioAnt)
         .lte("fecha", fechaFinAnt),
-      // Sin filtro de fecha — saldo corrido histórico, igual que en Home.
-      // Home y Finanzas deben mostrar exactamente el mismo balance.
+      // Sin filtro de fecha, a propósito — la deuda es una cuenta corrida
+      // que sube o se empareja, no algo que reinicia cada mes. Distinto de
+      // "cuánto se gastó" (compartidos, filtrado por mesActivo), que sí es
+      // del mes. Home usa el mismo criterio para este número.
       supabase
         .from("gastos")
         .select("id, valor, pagado_por, porcentaje_pagador")
@@ -266,12 +269,38 @@ export default function FinanzasPage() {
     return gastos.filter(g => g.visibilidad === filtro)
   }, [gastos, filtro])
 
-  // Ojo: usa gastosBalance (histórico completo, sin filtro de mes), no
-  // compartidos (que sí está filtrado por mesActivo). El saldo de quién le
-  // debe a quién es una cuenta corrida, no algo que reinicia cada mes —
-  // mismo criterio que ya usa Home. Antes esto usaba `compartidos` y por
-  // eso Home y Finanzas mostraban números distintos.
-  const resumenPorPersona = useMemo((): ResumenPersona[] => {
+  // Resumen del MES seleccionado — SOLO para las tarjetas "Pagó"/"Le
+  // correspondía", que están paradas bajo un encabezado que dice "de
+  // agosto" (o el mes que sea). Para la deuda (quién le debe a quién) no se
+  // usa esto — ver balanceGeneral más abajo.
+  const resumenPorPersonaMes = useMemo((): ResumenPersona[] => {
+    const pagado: Record<string, number> = {}
+    const resp:   Record<string, number> = {}
+    perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
+
+    compartidos.forEach(g => {
+      const v   = Number(g.valor) || 0
+      const pct = g.porcentaje_pagador ?? 50
+      if (!g.pagado_por || !(g.pagado_por in pagado)) return
+      pagado[g.pagado_por] += v
+      resp[g.pagado_por] += v * pct / 100
+      const otro = perfiles.find(p => p.id !== g.pagado_por)
+      if (otro) resp[otro.id] += v * (100 - pct) / 100
+    })
+
+    return perfiles.map(p => ({
+      ...p,
+      pagado:          pagado[p.id] ?? 0,
+      responsabilidad: resp[p.id]   ?? 0,
+      saldo:           (pagado[p.id] ?? 0) - (resp[p.id] ?? 0),
+    }))
+  }, [compartidos, perfiles])
+
+  // Deuda HISTÓRICA — cuenta corrida desde siempre, no reinicia cada mes.
+  // Sube o se empareja según lo que se va registrando, pero nunca se resetea
+  // solo porque cambió el mes. Mismo criterio que usa Home — los dos deben
+  // mostrar la misma deuda pase lo que pase con el selector de mes de acá.
+  const balanceGeneral = useMemo((): ResumenPersona[] => {
     const pagado: Record<string, number> = {}
     const resp:   Record<string, number> = {}
     perfiles.forEach(p => { pagado[p.id] = 0; resp[p.id] = 0 })
@@ -297,8 +326,8 @@ export default function FinanzasPage() {
   const totalCompartido = compartidos.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const totalPersonal   = personales.reduce( (acc, g) => acc + (Number(g.valor) || 0), 0)
 
-  const acreedor = resumenPorPersona.find(p => p.saldo >  0.5)
-  const deudor   = resumenPorPersona.find(p => p.saldo < -0.5)
+  const acreedor = balanceGeneral.find(p => p.saldo >  0.5)
+  const deudor   = balanceGeneral.find(p => p.saldo < -0.5)
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
@@ -491,7 +520,7 @@ export default function FinanzasPage() {
               </div>
               <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
 
-              {resumenPorPersona.map(p => (
+              {resumenPorPersonaMes.map(p => (
                 <div key={p.id} className="bg-slate-800 rounded-xl p-3">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-medium">{esYo(p.id) ? `Tú (${p.nombre})` : p.nombre}</p>
@@ -519,6 +548,9 @@ export default function FinanzasPage() {
                   <p className="text-sm text-amber-300 text-center">
                     ⚖️ {nombreSujeto(deudor.id)} {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
                     {nombreObjeto(acreedor.id)}: <span className="font-bold">{fmt(acreedor.saldo)}</span>
+                  </p>
+                  <p className="text-[11px] text-amber-300/50 text-center mt-0.5">
+                    Saldo acumulado — no se resetea cada mes
                   </p>
                 </div>
               ) : totalCompartido > 0 ? (

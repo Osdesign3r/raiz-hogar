@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import ConfirmDialog from "@/components/ConfirmDialog"
 import PdfViewer from "@/components/documentos/PdfViewer"
+import { fechaLocal } from "@/lib/fecha"
 
 const CATEGORIAS: DocumentoCategoria[] = [
   "Familia", "Salud", "Educacion", "Finanzas", "Legal", "Hogar", "Vehiculos", "Mascotas", "Otros",
@@ -19,7 +20,7 @@ const ICONO_CATEGORIA: Record<DocumentoCategoria, string> = {
   Legal: "⚖️", Hogar: "🏠", Vehiculos: "🚗", Mascotas: "🐾", Otros: "📦",
 }
 
-const hoy = () => new Date().toISOString().split("T")[0]
+const hoy = () => fechaLocal()
 const diasEntre = (a: string, b: string) =>
   Math.round((new Date(a + "T12:00:00").getTime() - new Date(b + "T12:00:00").getTime()) / 86400000)
 

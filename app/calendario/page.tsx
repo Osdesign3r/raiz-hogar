@@ -8,13 +8,14 @@ import {
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
 import ConfirmDialog from "@/components/ConfirmDialog"
+import { fechaLocal } from "@/lib/fecha"
 
-const hoy = () => new Date().toISOString().split("T")[0]
+const hoy = () => fechaLocal()
 
 const limiteSemana = () => {
   const d = new Date()
   d.setDate(d.getDate() + 7)
-  return d.toISOString().split("T")[0]
+  return fechaLocal(d)
 }
 
 const COLOR_OPTIONS = [
