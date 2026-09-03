@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
 
-  return {
+  const m = {
 
     name: "LAZO",
 
@@ -19,6 +19,22 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#6C47FF",
 
     orientation: "portrait",
+
+    // Esto es lo que hace que LAZO aparezca en la lista de "Compartir" del
+    // teléfono cuando mantienes presionado un SMS (o cualquier texto). El
+    // sistema operativo manda el texto compartido como querystring a la
+    // ruta de `action` — de ahí lo recoge app/finanzas/page.tsx y prellena
+    // el formulario de gasto. `method: "GET"` porque solo recibimos texto,
+    // no archivos — no hace falta multipart/form-data para esto.
+    share_target: {
+      action: "/finanzas",
+      method: "GET",
+      params: {
+        title: "titulo",
+        text: "text",
+        url: "url",
+      },
+    },
 
     icons: [
 
@@ -46,5 +62,7 @@ export default function manifest(): MetadataRoute.Manifest {
     ]
 
   }
+
+  return m as MetadataRoute.Manifest
 
 }

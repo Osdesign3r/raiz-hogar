@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad, Presupuesto } from "@/lib/types"
 import {
@@ -10,6 +11,7 @@ import {
 import { calcularBalance }
 from "@/lib/finanzas"
 import { fechaLocal } from "@/lib/fecha"
+import { parsearSms } from "@/lib/parsearSms"
 
 const hoy = () => fechaLocal()
 
@@ -34,7 +36,7 @@ const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
 type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
 
-export default function FinanzasPage() {
+function FinanzasContent() {
   const [gastos,            setGastos]            = useState<Gasto[]>([])
   const [gastosMesAnterior, setGastosMesAnterior]  = useState<Gasto[]>([])
   const [gastosBalance,     setGastosBalance]      = useState<Gasto[]>([])
@@ -181,6 +183,31 @@ export default function FinanzasPage() {
   useEffect(() => {
     if (editandoIdRef.current) { cancelarRef.current(); setModalAbierto(false) }
   }, [mesActivo])
+
+  // Cuando LAZO se abre porque compartiste un SMS (o cualquier texto) desde
+  // el menú "Compartir" del teléfono — ver share_target en app/manifest.ts.
+  // Nunca guarda nada solo: solo prellena el formulario y lo abre, la
+  // confirmación de guardar sigue siendo tuya siempre.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  useEffect(() => {
+    const textoCompartido = searchParams.get("text")
+    if (!textoCompartido) return
+
+    const { valor: valorDetectado, concepto: conceptoDetectado } = parsearSms(textoCompartido)
+
+    cancelarEdicion()
+    setConcepto(conceptoDetectado)
+    if (valorDetectado) setValor(String(valorDetectado))
+    setVisibilidad("compartido")
+    setModalAbierto(true)
+
+    // Limpia el ?text= de la URL — si no, al recargar la página se vuelve a
+    // abrir el mismo formulario con el mismo SMS de hace rato.
+    router.replace("/finanzas")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const abrirNuevo = () => {
     cancelarEdicion()
@@ -1030,5 +1057,15 @@ export default function FinanzasPage() {
 
       </div>
     </main>
+  )
+}
+
+// useSearchParams (para leer el SMS compartido) exige un límite de Suspense
+// en Next — sin esto, el build falla. Mismo patrón que ya usa app/login.
+export default function FinanzasPage() {
+  return (
+    <Suspense>
+      <FinanzasContent />
+    </Suspense>
   )
 }
