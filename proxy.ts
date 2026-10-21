@@ -1,8 +1,9 @@
-// middleware.ts — raíz del proyecto (mismo nivel que package.json)
+// proxy.ts — raíz del proyecto (mismo nivel que package.json).
+// Antes middleware.ts: Next 16 renombró la convención a `proxy` (corre en Node).
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -48,6 +49,9 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.\\.(?:svg|png|jpg|jpeg|gif|webp)$).)',
+    // Excluye estáticos y el service worker. Los dos `*` importan: sin ellos el
+    // patrón solo coincidía con rutas de UN carácter (p. ej. "/a") y el proxy
+    // nunca corría en ninguna ruta real, o sea, la redirección a /login no existía.
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

@@ -67,12 +67,42 @@ export function onAccentFor(accent: AccentColor): string {
   return peorCon(TEXTO_OSCURO) > peorCon(TEXTO_CLARO) ? TEXTO_OSCURO : TEXTO_CLARO
 }
 
-/** Aplica el acento a toda la app vía variables CSS (ver globals.css). */
-export function applyAccentToRoot(accent: AccentColor) {
-  const root = document.documentElement
-  root.style.setProperty('--accent', accent.value)
-  root.style.setProperty('--accent-from', accent.from)
-  root.style.setProperty('--accent-to', accent.to)
-  root.style.setProperty('--accent-mid', accentMid(accent))
-  root.style.setProperty('--on-accent', onAccentFor(accent))
+// ── Persistencia (anti-parpadeo) ─────────────────────────────────────────────
+// El acento real vive en Supabase y tarda en llegar; mientras tanto la app se
+// pintaba con el índigo por defecto y luego saltaba al color del usuario. Se
+// guardan las variables ya calculadas en localStorage y un script bloqueante
+// en <head> (ver ACCENT_BOOT_SCRIPT) las aplica ANTES del primer pintado.
+
+export const ACCENT_STORAGE_KEY = 'lazo_accent'
+
+function variablesDe(accent: AccentColor): Record<string, string> {
+  return {
+    '--accent': accent.value,
+    '--accent-from': accent.from,
+    '--accent-to': accent.to,
+    '--accent-mid': accentMid(accent),
+    '--on-accent': onAccentFor(accent),
+  }
 }
+
+/** Aplica el acento a toda la app vía variables CSS (ver globals.css) y lo recuerda. */
+export function applyAccentToRoot(accent: AccentColor) {
+  const vars = variablesDe(accent)
+  const root = document.documentElement
+  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v))
+  try { localStorage.setItem(ACCENT_STORAGE_KEY, JSON.stringify(vars)) } catch {}
+}
+
+/** Sin sesión: vuelve al acento por defecto y olvida el del usuario anterior. */
+export function resetAccent() {
+  const root = document.documentElement
+  Object.keys(variablesDe(DEFAULT_ACCENT)).forEach(k => root.style.removeProperty(k))
+  try { localStorage.removeItem(ACCENT_STORAGE_KEY) } catch {}
+}
+
+/**
+ * Script que corre antes del primer pintado. Va inline porque un efecto de
+ * React llega tarde: después de hidratar, con el color por defecto ya en
+ * pantalla. Solo asigna variables CSS ya calculadas; no evalúa nada externo.
+ */
+export const ACCENT_BOOT_SCRIPT = `try{var v=JSON.parse(localStorage.getItem(${JSON.stringify(ACCENT_STORAGE_KEY)})||"null");if(v){var s=document.documentElement.style;for(var k in v)s.setProperty(k,v[k])}}catch(e){}`

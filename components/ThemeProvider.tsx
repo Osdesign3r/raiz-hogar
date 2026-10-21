@@ -2,13 +2,13 @@
 
 import { useEffect } from "react"
 import { supabase } from "@/lib/supabase"
-import { getAccentByValue, applyAccentToRoot } from "@/lib/colors"
+import { getAccentByValue, applyAccentToRoot, resetAccent } from "@/lib/colors"
 
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const applyTheme = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) return
+      if (!session?.user) { resetAccent(); return }
 
       const { data: perfil } = await supabase
         .from("perfiles")

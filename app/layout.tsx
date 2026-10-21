@@ -7,6 +7,7 @@ import BottomNav from "@/components/BottomNav"
 import ThemeProvider from "@/components/ThemeProvider"
 import PushNotificationProvider
 from "@/components/PushNotificationProvider"
+import { ACCENT_BOOT_SCRIPT } from "@/lib/colors"
 
 // Títulos y cifras: Outfit (geométrica, cálida). Cuerpo y formularios: Nunito
 // Sans (legible a 16px, redondeada sin ser infantil). Ambas son variables.
@@ -52,7 +53,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // Las variables de next/font van en <html>, no en <body>: los tokens de
     // globals.css (--font-display, --font-body) viven en :root y solo ven las
     // variables definidas en ese mismo elemento o en un ancestro.
-    <html lang="es" className={`${outfit.variable} ${nunito.variable}`}>
+    // suppressHydrationWarning: el script de arranque cambia el atributo style
+    // de <html> (acento del usuario) antes de que React hidrate.
+    <html lang="es" className={`${outfit.variable} ${nunito.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Aplica el acento guardado antes del primer pintado: sin parpadeo */}
+        <script dangerouslySetInnerHTML={{ __html: ACCENT_BOOT_SCRIPT }} />
+      </head>
       <body className="antialiased">
         <a href="#contenido" className="skip-link">Saltar al contenido</a>
         <ThemeProvider>
