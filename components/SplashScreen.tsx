@@ -50,36 +50,44 @@ export default function SplashScreen() {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-950 transition-opacity ease-out ${
+      role="status"
+      aria-label="Cargando LAZO"
+      className={`fixed inset-0 flex flex-col items-center justify-center bg-[var(--background)] transition-opacity ease-out ${
         saliendo ? "opacity-0 pointer-events-none" : "opacity-100"
       }`}
-      style={{ transitionDuration: `${DURACION_FADE_MS}ms` }}
+      style={{ zIndex: "var(--z-splash)", transitionDuration: `${DURACION_FADE_MS}ms` }}
     >
+      {/* Halo de acento detrás del logo */}
+      <div
+        aria-hidden="true"
+        className="absolute h-64 w-64 rounded-full opacity-20 blur-3xl"
+        style={{ background: "var(--accent)" }}
+      />
+
       {logoError ? (
-        <div className="w-24 h-24 rounded-3xl accent-gradient flex items-center justify-center mb-5">
-          <span className="text-4xl font-bold text-white">L</span>
+        <div className="accent-gradient relative mb-5 flex h-24 w-24 items-center justify-center rounded-[28px]">
+          <span className="font-display text-4xl font-semibold">L</span>
         </div>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src="/icon-512.png"
-          alt="LAZO"
+          alt=""
           width={96}
           height={96}
-          className="w-24 h-24 rounded-3xl mb-5 shadow-lg shadow-black/40"
+          className="relative mb-5 h-24 w-24 rounded-[28px] shadow-2xl shadow-black/50"
           onError={() => setLogoError(true)}
         />
       )}
 
-      <p className="text-xl font-semibold tracking-wide text-white mb-1">LAZO</p>
-      <p className="text-xs text-slate-500 mb-8">Tu hogar, en orden</p>
+      <p className="font-display relative mb-1 text-2xl font-semibold tracking-wide">LAZO</p>
+      <p className="relative mb-8 text-sm text-muted">Tu hogar, en orden</p>
 
-      {/* Indicador de "todavía cargando", no solo un logo estático */}
-      <div className="flex gap-1.5">
+      <div className="relative flex gap-1.5" aria-hidden="true">
         {[0, 1, 2].map(i => (
           <span
             key={i}
-            className="w-1.5 h-1.5 rounded-full bg-slate-600 animate-bounce"
+            className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--text-muted)]"
             style={{ animationDelay: `${i * 150}ms` }}
           />
         ))}

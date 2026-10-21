@@ -5,12 +5,19 @@ import { usePathname } from "next/navigation"
 import { Home, Wallet, Calendar, FileText, Settings } from "lucide-react"
 
 const NAV = [
-  { href: "/",             icon: Home,     label: "Inicio" },
-  { href: "/finanzas",     icon: Wallet,   label: "Finanzas" },
-  { href: "/calendario",   icon: Calendar, label: "Calendario" },
-  { href: "/documentos",   icon: FileText, label: "Docs" },
-  { href: "/configuracion",icon: Settings, label: "Config" },
+  { href: "/",              icon: Home,     label: "Inicio" },
+  { href: "/finanzas",      icon: Wallet,   label: "Finanzas" },
+  { href: "/calendario",    icon: Calendar, label: "Agenda" },
+  { href: "/documentos",    icon: FileText, label: "Docs" },
+  { href: "/configuracion", icon: Settings, label: "Ajustes" },
 ]
+
+// /familia cuelga de Ajustes, así que ahí también se ilumina esa pestaña.
+const esActiva = (pathname: string, href: string) =>
+  href === "/"
+    ? pathname === "/"
+    : pathname === href || pathname.startsWith(href + "/") ||
+      (href === "/configuracion" && pathname.startsWith("/familia"))
 
 export default function BottomNav() {
   const pathname = usePathname()
@@ -18,42 +25,46 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50"
-      style={{
-        background: "rgba(13,13,20,0.85)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderTop: "0.5px solid rgba(255,255,255,0.07)",
-      }}
+      aria-label="Navegación principal"
+      className="fixed inset-x-0 bottom-0 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_88%,transparent)] backdrop-blur-xl"
+      style={{ zIndex: "var(--z-nav)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="max-w-md mx-auto flex justify-around items-center px-2 py-3">
+      <ul className="mx-auto flex max-w-md items-stretch justify-around px-2 py-2 md:max-w-xl">
         {NAV.map(({ href, icon: Icon, label }) => {
-          const active = pathname === href
+          const active = esActiva(pathname, href)
           return (
-            <Link key={href} href={href} className="flex flex-col items-center gap-1 min-w-[44px]">
-              <div className="relative">
-                <Icon
-                  size={22}
-                  style={{ color: active ? "var(--accent)" : "rgba(255,255,255,0.3)" }}
-                  strokeWidth={active ? 2 : 1.5}
-                />
-                {active && (
-                  <span
-                    className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                  />
-                )}
-              </div>
-              <span
-                className="text-[10px]"
-                style={{ color: active ? "var(--accent)" : "rgba(255,255,255,0.25)" }}
+            <li key={href} className="flex-1">
+              <Link
+                href={href}
+                aria-current={active ? "page" : undefined}
+                className="group flex min-h-[56px] flex-col items-center justify-center gap-0.5 rounded-2xl"
               >
-                {label}
-              </span>
-            </Link>
+                <span
+                  className="flex h-8 w-14 items-center justify-center rounded-full transition-colors duration-200"
+                  style={{
+                    background: active
+                      ? "color-mix(in srgb, var(--accent) 22%, transparent)"
+                      : "transparent",
+                  }}
+                >
+                  <Icon
+                    size={22}
+                    strokeWidth={active ? 2.25 : 1.75}
+                    style={{ color: active ? "var(--accent-text)" : "var(--text-muted)" }}
+                    className={active ? "" : "transition-colors group-hover:!text-[var(--text-secondary)]"}
+                  />
+                </span>
+                <span
+                  className="text-[11px] font-semibold leading-none"
+                  style={{ color: active ? "var(--accent-text)" : "var(--text-muted)" }}
+                >
+                  {label}
+                </span>
+              </Link>
+            </li>
           )
         })}
-      </div>
+      </ul>
     </nav>
   )
 }

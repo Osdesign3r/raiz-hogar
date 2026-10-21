@@ -5,9 +5,14 @@ import { supabase } from "@/lib/supabase"
 import type { Documento, DocumentoCategoria, DocumentoVisibilidad, Miembro } from "@/lib/types"
 import {
   Upload, Trash2, Pencil, X, Search, Lock, Users,
-  AlertTriangle, Clock, ExternalLink, Plus, FileText, FileQuestion,
+  AlertTriangle, Clock, ExternalLink, Plus, FileText, FileQuestion, FolderOpen,
+  UsersRound, Stethoscope, GraduationCap, Banknote, Gavel, House, Car, PawPrint, Package,
+  type LucideIcon,
 } from "lucide-react"
 import ConfirmDialog from "@/components/ConfirmDialog"
+import Sheet from "@/components/Sheet"
+import PageHeader from "@/components/PageHeader"
+import EmptyState from "@/components/EmptyState"
 import PdfViewer from "@/components/documentos/PdfViewer"
 import { fechaLocal } from "@/lib/fecha"
 
@@ -15,9 +20,9 @@ const CATEGORIAS: DocumentoCategoria[] = [
   "Familia", "Salud", "Educacion", "Finanzas", "Legal", "Hogar", "Vehiculos", "Mascotas", "Otros",
 ]
 
-const ICONO_CATEGORIA: Record<DocumentoCategoria, string> = {
-  Familia: "👨‍👩‍👧", Salud: "🏥", Educacion: "🎓", Finanzas: "💰",
-  Legal: "⚖️", Hogar: "🏠", Vehiculos: "🚗", Mascotas: "🐾", Otros: "📦",
+const ICONO_CATEGORIA: Record<DocumentoCategoria, LucideIcon> = {
+  Familia: UsersRound, Salud: Stethoscope, Educacion: GraduationCap, Finanzas: Banknote,
+  Legal: Gavel, Hogar: House, Vehiculos: Car, Mascotas: PawPrint, Otros: Package,
 }
 
 const hoy = () => fechaLocal()
@@ -54,7 +59,6 @@ export default function DocumentosPage() {
   const [filtro,     setFiltro]     = useState<"todos" | "compartido" | "privado">("todos")
 
   const [modalAbierto, setModalAbierto] = useState(false)
-  const [hojaVisible,  setHojaVisible]  = useState(false)
   const [aEliminar,    setAEliminar]    = useState<Documento | null>(null)
 
   const [editandoId,    setEditandoId]    = useState<string | null>(null)
@@ -82,6 +86,15 @@ export default function DocumentosPage() {
       return () => clearTimeout(t)
     }
     setVisorVisible(false)
+  }, [visor])
+
+  const cerrarVisorRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    if (!visor) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cerrarVisorRef.current() }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
   }, [visor])
 
   const cargarDatos = useCallback(async () => {
@@ -118,14 +131,6 @@ export default function DocumentosPage() {
 
     return () => { supabase.removeChannel(channel) }
   }, [cargarDatos])
-
-  useEffect(() => {
-    if (modalAbierto) {
-      const t = setTimeout(() => setHojaVisible(true), 10)
-      return () => clearTimeout(t)
-    }
-    setHojaVisible(false)
-  }, [modalAbierto])
 
   const nombreMiembro = useCallback(
     (id: string | null) => id === null ? "General del hogar" : (miembros.find(m => m.id === id)?.nombre ?? "—"),
@@ -260,6 +265,7 @@ export default function DocumentosPage() {
     setVisorVisible(false)
     setTimeout(() => setVisor(null), 200)
   }
+  useEffect(() => { cerrarVisorRef.current = cerrarVisor })
 
   const vencidos = useMemo(
     () => [...documentos]
@@ -296,45 +302,50 @@ export default function DocumentosPage() {
 
   const fmtVencimiento = (fecha: string) => {
     const dias = diasEntre(fecha, hoy())
-    if (dias < 0) return { texto: `Venció hace ${Math.abs(dias)} días`, color: "text-red-400" }
-    if (dias === 0) return { texto: "Vence hoy", color: "text-amber-400" }
-    if (dias <= 30) return { texto: `Vence en ${dias} días`, color: "text-amber-400" }
+    if (dias < 0) return { texto: `Venció hace ${Math.abs(dias)} días`, color: "text-danger" }
+    if (dias === 0) return { texto: "Vence hoy", color: "text-warning" }
+    if (dias <= 30) return { texto: `Vence en ${dias} días`, color: "text-warning" }
     return { texto: `Vence ${fecha}`, color: "text-muted" }
   }
 
-  const renderItem = (d: Documento, destacar?: "vencido" | "porVencer") => (
-    <div
+  const renderItem = (d: Documento, destacar?: "vencido" | "porVencer") => {
+    const Icono = ICONO_CATEGORIA[d.categoria]
+    return (
+    <li
       key={d.id}
-      className={`rounded-xl p-4 flex items-center justify-between gap-3 group transition ${
-        d.id === editandoId ? "surface border-subtle ring-1" :
-        destacar === "vencido"   ? "bg-red-500/10 border border-red-500/30" :
-        destacar === "porVencer" ? "bg-amber-500/10 border border-amber-500/30" :
-        "surface border-subtle"
+      className={`card flex items-center justify-between gap-1 p-3 pl-3.5 ${
+        destacar === "vencido"   ? "tone-danger" :
+        destacar === "porVencer" ? "tone-warning" : ""
       }`}
-      style={d.id === editandoId ? { "--tw-ring-color": "var(--accent)" } as React.CSSProperties : undefined}
+      style={d.id === editandoId ? { borderColor: "var(--accent)" } : undefined}
     >
-      <button onClick={() => verArchivo(d)} className="flex items-center gap-3 min-w-0 flex-1 text-left">
-        <span className="text-xl shrink-0">{ICONO_CATEGORIA[d.categoria]}</span>
+      <button
+        onClick={() => verArchivo(d)}
+        aria-label={`Abrir ${d.nombre}`}
+        className="flex min-h-[56px] min-w-0 flex-1 items-center gap-3 rounded-xl text-left"
+      >
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--surface-2)]">
+          <Icono size={20} style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+        </span>
         <div className="min-w-0">
-          <p className="font-medium text-sm truncate">{d.nombre}</p>
-          <p className="text-xs text-muted flex items-center gap-1.5 flex-wrap">
+          <p className="line-clamp-2 font-semibold leading-snug">{d.nombre}</p>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted">
             <span>{nombreMiembro(d.miembro_id)}</span>
-            <span>·</span>
             {d.visibilidad === "privado" ? (
-              <span className="flex items-center gap-0.5"><Lock size={10} /> Privado</span>
+              <span className="flex items-center gap-1"><Lock size={12} aria-hidden="true" /> Privado</span>
             ) : (
-              <span className="flex items-center gap-0.5"><Users size={10} /> Compartido</span>
+              <span className="flex items-center gap-1"><Users size={12} aria-hidden="true" /> Compartido</span>
             )}
             {d.fecha_vencimiento && (
-              <span className={`flex items-center gap-0.5 ${fmtVencimiento(d.fecha_vencimiento).color}`}>
-                <Clock size={10} /> {fmtVencimiento(d.fecha_vencimiento).texto}
+              <span className={`flex items-center gap-1 font-semibold ${fmtVencimiento(d.fecha_vencimiento).color}`}>
+                <Clock size={12} aria-hidden="true" /> {fmtVencimiento(d.fecha_vencimiento).texto}
               </span>
             )}
           </p>
           {d.etiquetas?.length ? (
-            <div className="flex flex-wrap gap-1 mt-1">
+            <div className="mt-1.5 flex flex-wrap gap-1">
               {d.etiquetas.map(tag => (
-                <span key={tag} className="px-2 py-0.5 rounded-full bg-[var(--surface-2)] text-[10px] text-muted">
+                <span key={tag} className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs text-secondary">
                   #{tag}
                 </span>
               ))}
@@ -342,271 +353,241 @@ export default function DocumentosPage() {
           ) : null}
         </div>
       </button>
-      <div className="flex items-center gap-2 shrink-0">
-        <button onClick={() => verArchivo(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition" title="Ver archivo">
-          <ExternalLink size={16} />
-        </button>
+      <div className="flex shrink-0">
         {d.created_by === userId && (
-          <button onClick={() => editarDocumento(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition">
-            <Pencil size={16} />
+          <button onClick={() => editarDocumento(d)} className="icon-btn is-accent" aria-label={`Editar ${d.nombre}`}>
+            <Pencil size={18} />
           </button>
         )}
         {d.created_by === userId && (
-          <button onClick={() => setAEliminar(d)} className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition">
-            <Trash2 size={15} />
+          <button onClick={() => setAEliminar(d)} className="icon-btn is-danger" aria-label={`Eliminar ${d.nombre}`}>
+            <Trash2 size={18} />
           </button>
         )}
       </div>
-    </div>
-  )
+    </li>
+    )
+  }
 
   return (
-    <main className="min-h-screen p-4 pb-28">
-      <div className="max-w-md mx-auto">
+    <main className="page-shell">
+      <div className="page">
 
-        <h1 className="text-2xl font-bold mb-4">Documentos</h1>
+        <PageHeader title="Documentos" />
 
-        <div className="grid grid-cols-3 gap-2 mb-6">
-          <div className={`rounded-xl p-3 ${vencidos.length > 0 ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"}`}>
-            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><AlertTriangle size={11} /> Vencidos</p>
-            <p className={`font-bold text-lg ${vencidos.length > 0 ? "text-red-400" : ""}`}>{vencidos.length}</p>
+        <div className="mb-6 grid grid-cols-3 gap-2.5">
+          <div className={`card p-3.5 ${vencidos.length > 0 ? "tone-danger" : ""}`}>
+            <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted"><AlertTriangle size={13} /> Vencidos</p>
+            <p className={`num font-display text-2xl font-semibold ${vencidos.length > 0 ? "text-danger" : ""}`}>{vencidos.length}</p>
           </div>
-          <div className={`rounded-xl p-3 ${porVencer.length > 0 ? "bg-amber-500/10 border border-amber-500/30" : "surface border-subtle"}`}>
-            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><Clock size={11} /> Por vencer</p>
-            <p className={`font-bold text-lg ${porVencer.length > 0 ? "text-amber-400" : ""}`}>{porVencer.length}</p>
+          <div className={`card p-3.5 ${porVencer.length > 0 ? "tone-warning" : ""}`}>
+            <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted"><Clock size={13} /> Por vencer</p>
+            <p className={`num font-display text-2xl font-semibold ${porVencer.length > 0 ? "text-warning" : ""}`}>{porVencer.length}</p>
           </div>
-          <div className="surface border-subtle rounded-xl p-3">
-            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><FileText size={11} /> Total</p>
-            <p className="font-bold text-lg">{documentos.length}</p>
+          <div className="card p-3.5">
+            <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted"><FileText size={13} /> Total</p>
+            <p className="num font-display text-2xl font-semibold">{documentos.length}</p>
           </div>
         </div>
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-xl h-16 animate-pulse" />)}
+          <div className="space-y-3" aria-hidden="true">
+            {[1, 2, 3].map(i => <div key={i} className="skeleton h-[76px]" />)}
           </div>
         ) : (
           <>
             {vencidos.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs text-red-400 font-medium uppercase tracking-wide mb-2 pl-1 flex items-center gap-1">
-                  <AlertTriangle size={12} /> Vencidos
-                </p>
-                <div className="space-y-2">{vencidos.map(d => renderItem(d, "vencido"))}</div>
-              </div>
+              <section className="mb-5">
+                <h2 className="mb-2 flex items-center gap-1.5 pl-1 text-xs font-bold uppercase tracking-wider text-danger">
+                  <AlertTriangle size={14} /> Vencidos
+                </h2>
+                <ul className="space-y-2">{vencidos.map(d => renderItem(d, "vencido"))}</ul>
+              </section>
             )}
 
             {porVencer.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs text-amber-400 font-medium uppercase tracking-wide mb-2 pl-1 flex items-center gap-1">
-                  <Clock size={12} /> Por vencer (30 días)
-                </p>
-                <div className="space-y-2">{porVencer.map(d => renderItem(d, "porVencer"))}</div>
-              </div>
+              <section className="mb-5">
+                <h2 className="mb-2 flex items-center gap-1.5 pl-1 text-xs font-bold uppercase tracking-wider text-warning">
+                  <Clock size={14} /> Por vencer (30 días)
+                </h2>
+                <ul className="space-y-2">{porVencer.map(d => renderItem(d, "porVencer"))}</ul>
+              </section>
             )}
 
-            <div className="flex gap-2 mb-3">
-              <div className="flex-1 flex items-center gap-2 surface border-subtle rounded-lg px-3">
-                <Search size={14} className="text-muted shrink-0" />
-                <input
-                  value={busqueda}
-                  onChange={e => setBusqueda(e.target.value)}
-                  placeholder="Buscar documento o etiqueta..."
-                  className="w-full bg-transparent text-sm py-2.5 outline-none placeholder:text-muted"
-                />
-              </div>
+            <div className="relative mb-3">
+              <Search size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" aria-hidden="true" />
+              <input
+                type="search"
+                value={busqueda}
+                onChange={e => setBusqueda(e.target.value)}
+                placeholder="Buscar documento o etiqueta..."
+                aria-label="Buscar documento o etiqueta"
+                className="field !pl-11"
+              />
             </div>
-            <div className="flex gap-2 mb-4">
+
+            <div className="mb-5 grid grid-cols-3 gap-2" role="group" aria-label="Filtrar por visibilidad">
               {(["todos", "compartido", "privado"] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFiltro(f)}
-                  className={`flex-1 p-2 rounded-lg text-xs font-medium transition ${
-                    filtro === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={filtro === f ? { background: "var(--accent)" } : undefined}
-                >
+                <button key={f} onClick={() => setFiltro(f)} aria-pressed={filtro === f} className="chip">
                   {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Privados"}
                 </button>
               ))}
             </div>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3">{error}</div>
+              <div role="alert" className="card tone-danger mb-3 p-3.5 text-sm text-danger">{error}</div>
             )}
 
             {documentosFiltrados.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-4xl mb-3">📂</div>
-                <p className="text-base font-medium text-secondary">La carpeta está vacía</p>
-                <p className="text-sm text-muted mt-1">
-                  {busqueda
+              <EmptyState
+                icon={FolderOpen}
+                title="La carpeta está vacía"
+                description={
+                  busqueda
                     ? "No encontramos documentos con ese criterio"
-                    : "Guarda aquí documentos importantes de la familia"}
-                </p>
-              </div>
+                    : "Guarda aquí documentos importantes de la familia"
+                }
+              />
             ) : (
-              <div className="space-y-2">
+              <ul className="space-y-2">
                 {documentosFiltrados.map(d => renderItem(d))}
-              </div>
+              </ul>
             )}
           </>
         )}
 
         {!modalAbierto && (
-          <button
-            onClick={abrirNuevo}
-            className="fixed bottom-[88px] right-4 w-14 h-14 rounded-full accent-gradient shadow-lg flex items-center justify-center z-40 text-white"
-          >
+          <button onClick={abrirNuevo} className="fab" aria-label="Agregar documento">
             <Plus size={26} />
           </button>
         )}
 
-        {modalAbierto && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
-            <div
-              className={`relative w-full max-w-md surface rounded-t-3xl p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 transition-transform duration-300 ease-out ${
-                hojaVisible ? "translate-y-0" : "translate-y-full"
-              }`}
-            >
-              <div className="flex items-center justify-between sticky top-0 surface pb-1">
-                <p className="text-sm font-semibold">{editandoId ? "Editando documento" : "Nuevo documento"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary transition">
-                  <X size={18} />
-                </button>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editando documento" : "Nuevo documento"}>
+          <label className="flex min-h-[56px] cursor-pointer items-center gap-3 rounded-[14px] border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] p-3.5 text-secondary transition hover:border-[var(--accent)] focus-within:border-[var(--accent)]">
+            <Upload size={20} className="shrink-0 text-muted" aria-hidden="true" />
+            <span className="flex-1 truncate">
+              {archivo
+                ? `${archivo.name} · ${(archivo.size / 1024 / 1024).toFixed(1)} MB`
+                : editandoId ? "Reemplazar archivo (opcional)" : "Selecciona un archivo"}
+            </span>
+            {!archivo && (
+              <span className="shrink-0 text-xs text-muted">máx. {MAX_MB} MB</span>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="sr-only"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.gif,.zip,.txt,.csv"
+              onChange={e => setArchivo(e.target.files?.[0] ?? null)}
+            />
+          </label>
+
+          {progreso !== null && (
+            <div className="flex items-center gap-2 text-sm text-muted" role="status">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-2)]">
+                <div className="h-full w-1/3 animate-pulse rounded-full" style={{ background: "var(--accent)" }} />
               </div>
+              <span>Subiendo...</span>
+            </div>
+          )}
 
-              <label className="flex items-center gap-2 p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary cursor-pointer hover:opacity-80 transition">
-                <Upload size={15} className="shrink-0 text-muted" />
-                <span className="truncate flex-1">
-                  {archivo
-                    ? `${archivo.name} · ${(archivo.size / 1024 / 1024).toFixed(1)} MB`
-                    : editandoId ? "Reemplazar archivo (opcional)" : "Selecciona un archivo"}
-                </span>
-                {!archivo && (
-                  <span className="text-[10px] text-muted shrink-0">máx. {MAX_MB} MB</span>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.gif,.zip,.txt,.csv"
-                  onChange={e => setArchivo(e.target.files?.[0] ?? null)}
-                />
-              </label>
+          <div>
+            <label htmlFor="d-nombre" className="field-label">Nombre</label>
+            <input
+              id="d-nombre"
+              value={nombre}
+              onChange={e => setNombre(e.target.value)}
+              placeholder="Nombre del documento"
+              autoFocus
+              className="field"
+            />
+          </div>
 
-              {progreso !== null && (
-                <div className="flex items-center gap-2 text-[11px] text-muted">
-                  <div className="h-1.5 flex-1 bg-[var(--surface-2)] rounded-full overflow-hidden">
-                    <div
-                      className="h-full w-1/3 rounded-full animate-pulse"
-                      style={{ background: "var(--accent)" }}
-                    />
-                  </div>
-                  <span>Subiendo...</span>
-                </div>
-              )}
-
-              <input
-                value={nombre}
-                onChange={e => setNombre(e.target.value)}
-                placeholder="Nombre del documento"
-                autoFocus
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
-
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={categoria}
-                  onChange={e => setCategoria(e.target.value as DocumentoCategoria)}
-                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                >
-                  {CATEGORIAS.map(c => (
-                    <option key={c} value={c}>{ICONO_CATEGORIA[c]} {c}</option>
-                  ))}
-                </select>
-                <select
-                  value={miembroId}
-                  onChange={e => setMiembroId(e.target.value)}
-                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                >
-                  <option value="">General del hogar</option>
-                  {miembros.map(m => (
-                    <option key={m.id} value={m.id}>{m.nombre}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setVisibilidad("compartido")}
-                  className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    visibilidad === "compartido" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={visibilidad === "compartido" ? { background: "var(--accent)" } : undefined}
-                >
-                  <Users size={13} /> Compartido
-                </button>
-                <button
-                  onClick={() => !editandoAjeno && setVisibilidad("privado")}
-                  disabled={editandoAjeno}
-                  title={editandoAjeno ? "No puedes hacer privado un documento que subió tu pareja" : undefined}
-                  className={`p-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    editandoAjeno          ? "bg-[var(--surface-2)]/40 text-muted cursor-not-allowed" :
-                    visibilidad==="privado"? "text-white" :
-                                             "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={!editandoAjeno && visibilidad === "privado" ? { background: "var(--accent)" } : undefined}
-                >
-                  <Lock size={13} /> Privado
-                </button>
-              </div>
-
-              <div>
-                <p className="text-xs text-muted mb-1">Fecha de vencimiento (opcional)</p>
-                <input
-                  value={vencimiento}
-                  onChange={e => setVencimiento(e.target.value)}
-                  type="date"
-                  className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                />
-              </div>
-
-              <input
-                value={etiquetas}
-                onChange={e => setEtiquetas(e.target.value)}
-                placeholder="Etiquetas separadas por coma (ej. pasaporte, urgente)"
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
-
-              <textarea
-                value={notas}
-                onChange={e => setNotas(e.target.value)}
-                placeholder="Notas (opcional)"
-                rows={2}
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1 resize-none"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
-
-              {error && <p className="text-red-400 text-xs">{error}</p>}
-
-              <button
-                onClick={guardarDocumento}
-                disabled={guardando || !nombre.trim() || (!editandoId && !archivo)}
-                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label htmlFor="d-cat" className="field-label">Categoría</label>
+              <select
+                id="d-cat"
+                value={categoria}
+                onChange={e => setCategoria(e.target.value as DocumentoCategoria)}
+                className="field"
               >
-                <Upload size={16} />
-                {guardando ? "Guardando..." : editandoId ? "Actualizar documento" : "Guardar documento"}
-              </button>
+                {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="d-miembro" className="field-label">Pertenece a</label>
+              <select
+                id="d-miembro"
+                value={miembroId}
+                onChange={e => setMiembroId(e.target.value)}
+                className="field"
+              >
+                <option value="">General del hogar</option>
+                {miembros.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+              </select>
             </div>
           </div>
-        )}
+
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Visibilidad">
+            <button onClick={() => setVisibilidad("compartido")} aria-pressed={visibilidad === "compartido"} className="chip !rounded-2xl">
+              <Users size={16} /> Compartido
+            </button>
+            <button
+              onClick={() => !editandoAjeno && setVisibilidad("privado")}
+              disabled={editandoAjeno}
+              aria-pressed={!editandoAjeno && visibilidad === "privado"}
+              title={editandoAjeno ? "No puedes hacer privado un documento que subió tu pareja" : undefined}
+              className="chip !rounded-2xl"
+            >
+              <Lock size={16} /> Privado
+            </button>
+          </div>
+
+          <div>
+            <label htmlFor="d-venc" className="field-label">Fecha de vencimiento (opcional)</label>
+            <input
+              id="d-venc"
+              value={vencimiento}
+              onChange={e => setVencimiento(e.target.value)}
+              type="date"
+              className="field"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="d-tags" className="field-label">Etiquetas (opcional)</label>
+            <input
+              id="d-tags"
+              value={etiquetas}
+              onChange={e => setEtiquetas(e.target.value)}
+              placeholder="Separadas por coma: pasaporte, urgente"
+              className="field"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="d-notas" className="field-label">Notas (opcional)</label>
+            <textarea
+              id="d-notas"
+              value={notas}
+              onChange={e => setNotas(e.target.value)}
+              rows={2}
+              className="field"
+            />
+          </div>
+
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
+          <button
+            onClick={guardarDocumento}
+            disabled={guardando || !nombre.trim() || (!editandoId && !archivo)}
+            className="btn btn-primary w-full"
+          >
+            <Upload size={18} />
+            {guardando ? "Guardando..." : editandoId ? "Actualizar documento" : "Guardar documento"}
+          </button>
+        </Sheet>
 
         <ConfirmDialog
           open={!!aEliminar}
@@ -620,57 +601,57 @@ export default function DocumentosPage() {
 
       {/* ── Visor flotante — reemplaza el window.open que sacaba de la PWA ── */}
       {visor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70" onClick={cerrarVisor} />
+        <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: "var(--z-sheet)" }}>
+          <div className="absolute inset-0 bg-black/80" onClick={cerrarVisor} aria-hidden="true" />
           <div
-            className={`relative w-full max-w-lg surface border-subtle rounded-2xl overflow-hidden max-h-[90dvh] flex flex-col shadow-2xl transition-all duration-200 ease-out ${
-              visorVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Vista previa de ${visor.nombre}`}
+            className={`relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-2xl transition-all duration-200 ease-out ${
+              visorVisible ? "scale-100 opacity-100" : "scale-95 opacity-0"
             }`}
           >
-            <div className="flex items-center justify-between p-3 border-b border-white/5 shrink-0">
-              <p className="text-sm font-medium truncate pr-2">{visor.nombre}</p>
-             <div className="flex items-center gap-1 shrink-0">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] py-1.5 pl-4 pr-1.5">
+              <p className="truncate font-semibold">{visor.nombre}</p>
+              <div className="flex shrink-0 items-center">
                 <a
                   href={visor.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] transition"
-                  title="Abrir externamente"
+                  className="icon-btn is-accent"
+                  aria-label="Abrir externamente"
                 >
-                  <ExternalLink size={15} />
+                  <ExternalLink size={18} />
                 </a>
-                <button
-                  onClick={cerrarVisor}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] transition"
-                >
-                  <X size={16} />
+                <button onClick={cerrarVisor} className="icon-btn" aria-label="Cerrar vista previa">
+                  <X size={20} />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 min-h-[50vh] bg-black/20 flex items-center justify-center overflow-auto">
+            <div className="flex min-h-[50vh] flex-1 items-center justify-center overflow-auto bg-black/30">
               {visor.tipo === "pdf" && (
                 <PdfViewer url={visor.url} />
               )}
 
               {visor.tipo === "imagen" && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={visor.url} alt={visor.nombre} className="max-w-full max-h-[75vh] object-contain" />
+                <img src={visor.url} alt={visor.nombre} className="max-h-[75vh] max-w-full object-contain" />
               )}
 
               {visor.tipo === "otro" && (
-                <div className="text-center p-8">
+                <div className="p-8 text-center">
                   <FileQuestion size={40} className="mx-auto mb-3 text-muted" />
-                  <p className="text-sm text-secondary mb-1">
+                  <p className="mb-1 text-secondary">
                     Este tipo de archivo no se puede previsualizar aquí
                   </p>
                   <a
-                   href={visor.url}
+                    href={visor.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm mt-3 px-4 py-2 rounded-lg accent-gradient text-white"
+                    className="btn btn-primary mt-3"
                   >
-                    <ExternalLink size={14} />
+                    <ExternalLink size={16} />
                     Abrir externamente
                   </a>
                 </div>
@@ -681,8 +662,13 @@ export default function DocumentosPage() {
       )}
 
       {visorCargando && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        <div
+          role="status"
+          aria-label="Cargando archivo"
+          className="fixed inset-0 flex items-center justify-center bg-black/60"
+          style={{ zIndex: "var(--z-sheet)" }}
+        >
+          <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-white" />
         </div>
       )}
 

@@ -6,10 +6,12 @@ import { supabase } from "@/lib/supabase"
 import type { Gasto, GastoInsert, Categoria, Perfil, GastoVisibilidad, Presupuesto } from "@/lib/types"
 import {
   Trash2, Plus, TrendingUp, TrendingDown, Lock, Users, Pencil, X,
-  ChevronDown, Flame, CalendarDays, Target, AlertTriangle, Check,
+  ChevronDown, Flame, CalendarDays, Target, AlertTriangle, Check, Scale, CircleCheck, Package, Receipt,
 } from "lucide-react"
-import { calcularBalance }
-from "@/lib/finanzas"
+import ConfirmDialog from "@/components/ConfirmDialog"
+import Sheet from "@/components/Sheet"
+import PageHeader from "@/components/PageHeader"
+import EmptyState from "@/components/EmptyState"
 import { fechaLocal } from "@/lib/fecha"
 import { parsearSms } from "@/lib/parsearSms"
 
@@ -30,6 +32,9 @@ const nombreMes = (mes: string) => {
   const [año, m] = mes.split("-").map(Number)
   return new Date(año, m - 1, 1).toLocaleDateString("es-CO", { month: "long" })
 }
+
+const fmtFechaCorta = (f: string) =>
+  new Date(f + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })
 
 const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
 
@@ -55,7 +60,8 @@ function FinanzasContent() {
   const [guardandoPresupuesto,  setGuardandoPresupuesto]  = useState(false)
 
   const [modalAbierto,    setModalAbierto]    = useState(false)
-  const [hojaVisible,     setHojaVisible]     = useState(false)
+  const [gastoAEliminar,        setGastoAEliminar]        = useState<Gasto | null>(null)
+  const [presupuestoAQuitar,    setPresupuestoAQuitar]    = useState<string | null>(null) // categoria_id
   const [mostrarDesglose, setMostrarDesglose] = useState(false)
   const [editandoId,      setEditandoId]      = useState<string | null>(null)
   const [editandoAjeno,   setEditandoAjeno]   = useState(false)
@@ -135,14 +141,6 @@ function FinanzasContent() {
   }, [mesActivo])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
-
-  useEffect(() => {
-    if (modalAbierto) {
-      const t = setTimeout(() => setHojaVisible(true), 10)
-      return () => clearTimeout(t)
-    }
-    setHojaVisible(false)
-  }, [modalAbierto])
 
   useEffect(() => {
     if (!pagadoPor && userId) setPagadoPor(userId)
@@ -278,7 +276,6 @@ function FinanzasContent() {
   }
 
   const eliminarGasto = async (id: string) => {
-    if (!confirm("¿Eliminar este gasto?")) return
     const { error: err } = await supabase.from("gastos").delete().eq("id", id)
     if (!err) {
       setGastos(prev => prev.filter(g => g.id !== id))
@@ -464,7 +461,6 @@ function FinanzasContent() {
   }
 
   const eliminarPresupuesto = async (categoriaId: string) => {
-    if (!confirm("¿Quitar el presupuesto de esta categoría?")) return
     const { error: err } = await supabase
       .from("presupuestos")
       .delete()
@@ -504,151 +500,203 @@ function FinanzasContent() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 pb-28">
-      <div className="max-w-md mx-auto">
+  // El mismo editor de monto aparecía copiado dos veces (categoría con
+  // presupuesto y categoría nueva); aquí vive una sola vez.
+  const editorPresupuesto = (titulo: string) => (
+    <div className="space-y-2 rounded-2xl bg-[var(--surface-2)] p-3">
+      <label htmlFor="monto-presupuesto" className="field-label !mb-0">{titulo} — presupuesto mensual</label>
+      <div className="flex gap-2">
+        <input
+          id="monto-presupuesto"
+          value={montoPresupuestoInput}
+          onChange={e => setMontoPresupuestoInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && guardarPresupuesto()}
+          type="number"
+          inputMode="numeric"
+          min="0"
+          placeholder="Monto mensual"
+          autoFocus
+          className="field !bg-[var(--surface)]"
+        />
+        <button
+          onClick={guardarPresupuesto}
+          disabled={guardandoPresupuesto || !montoPresupuestoInput}
+          className="btn btn-primary !min-h-[48px] !px-4"
+          aria-label="Guardar presupuesto"
+        >
+          <Check size={18} />
+        </button>
+        <button onClick={cerrarEdicionPresupuesto} className="btn btn-secondary !min-h-[48px] !px-4" aria-label="Cancelar">
+          <X size={18} />
+        </button>
+      </div>
+    </div>
+  )
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Finanzas</h1>
-          <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-2 py-1">
-            <TrendingUp size={14} className="text-slate-400" />
-            <input
-              type="month"
-              value={mesActivo}
-              onChange={e => setMesActivo(e.target.value)}
-              className="bg-transparent text-sm text-slate-300 outline-none"
-            />
-          </div>
-        </div>
+  const pastilla = (tono: "danger" | "success" | "neutral") =>
+    tono === "danger"  ? "bg-[color-mix(in_srgb,var(--danger)_16%,transparent)] text-danger" :
+    tono === "success" ? "bg-[color-mix(in_srgb,var(--success)_16%,transparent)] text-success" :
+                         "bg-[var(--surface-3)] text-secondary"
+
+  return (
+    <main className="page-shell">
+      <div className="page">
+
+        <PageHeader
+          title="Finanzas"
+          action={
+            <div className="w-[9.5rem] shrink-0">
+              <label htmlFor="mes" className="sr-only">Mes</label>
+              <input
+                id="mes"
+                type="month"
+                value={mesActivo}
+                onChange={e => setMesActivo(e.target.value)}
+                className="field !min-h-[44px] !py-2 text-center"
+              />
+            </div>
+          }
+        />
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="bg-slate-900 rounded-2xl h-24 animate-pulse" />)}
+          <div className="space-y-3" aria-hidden="true">
+            {[1, 2, 3].map(i => <div key={i} className="skeleton h-28" />)}
           </div>
         ) : (
           <>
             {/* ── Lo primero que se ve: el balance ──────────────────────── */}
-            <div className="bg-slate-900 rounded-2xl p-4 mb-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide flex items-center gap-1">
-                  <Users size={11} /> Gasto compartido de {nombreMes(mesActivo)}
-                </p>
-                {deltaTotalPct !== null && (
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
-                    deltaTotalPct > 0 ? "bg-red-500/15 text-red-400" :
-                    deltaTotalPct < 0 ? "bg-green-500/15 text-green-400" :
-                                        "bg-slate-700 text-slate-400"
-                  }`}>
-                    {deltaTotalPct > 0 ? <TrendingUp size={11} /> : deltaTotalPct < 0 ? <TrendingDown size={11} /> : null}
-                    {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
-                  </span>
-                )}
-              </div>
-              <p className="text-3xl font-bold -mt-1">{fmt(totalCompartido)}</p>
-
-              {resumenPorPersonaMes.map(p => (
-                <div key={p.id} className="bg-slate-800 rounded-xl p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-medium">{esYo(p.id) ? `Tú (${p.nombre})` : p.nombre}</p>
+            <section className="card mb-3 space-y-4 p-4" aria-label="Balance del mes">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="section-label flex items-center gap-1.5">
+                    <Users size={13} aria-hidden="true" /> Compartido · {nombreMes(mesActivo)}
+                  </p>
+                  {deltaTotalPct !== null && (
                     <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                        p.saldo > 0.5  ? "bg-green-500/15 text-green-400" :
-                        p.saldo < -0.5 ? "bg-red-500/15 text-red-400"    :
-                                         "bg-slate-700 text-slate-400"
-                      }`}
+                      className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${pastilla(
+                        deltaTotalPct > 0 ? "danger" : deltaTotalPct < 0 ? "success" : "neutral"
+                      )}`}
                     >
-                      {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}`  :
-                       p.saldo < -0.5 ? `− ${fmt(p.saldo)}`  :
-                                        "En paz"}
+                      {deltaTotalPct > 0 ? <TrendingUp size={13} /> : deltaTotalPct < 0 ? <TrendingDown size={13} /> : null}
+                      {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
+                      <span className="sr-only"> frente al mes anterior</span>
                     </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                    <div><p>Pagó</p><p className="text-white font-medium text-sm">{fmt(p.pagado)}</p></div>
-                    <div><p>Le correspondía</p><p className="text-white font-medium text-sm">{fmt(p.responsabilidad)}</p></div>
-                  </div>
+                  )}
                 </div>
-              ))}
+                <p className="num font-display mt-1 text-[2.25rem] font-semibold leading-tight">{fmt(totalCompartido)}</p>
+              </div>
+
+              {resumenPorPersonaMes.length > 0 && (
+                <div className="grid grid-cols-2 gap-2.5">
+                  {resumenPorPersonaMes.map(p => (
+                    <div key={p.id} className="rounded-2xl bg-[var(--surface-2)] p-3">
+                      <p className="mb-2 truncate text-sm font-semibold">{esYo(p.id) ? "Tú" : p.nombre}</p>
+                      <span
+                        className={`num mb-3 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${pastilla(
+                          p.saldo > 0.5 ? "success" : p.saldo < -0.5 ? "danger" : "neutral"
+                        )}`}
+                      >
+                        {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}` :
+                         p.saldo < -0.5 ? `− ${fmt(p.saldo)}` :
+                                          "En paz"}
+                      </span>
+                      <dl className="space-y-1.5 text-sm">
+                        <div>
+                          <dt className="text-muted">Pagó</dt>
+                          <dd className="num font-semibold">{fmt(p.pagado)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted">Le correspondía</dt>
+                          <dd className="num font-semibold">{fmt(p.responsabilidad)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {acreedor && deudor ? (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
-                  <p className="text-sm text-amber-300 text-center">
-                    ⚖️ {nombreSujeto(deudor.id)} {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
-                    {nombreObjeto(acreedor.id)}: <span className="font-bold">{fmt(acreedor.saldo)}</span>
-                  </p>
-                  <p className="text-[11px] text-amber-300/50 text-center mt-0.5">
-                    Saldo acumulado — no se resetea cada mes
-                  </p>
+                <div className="card tone-warning flex items-start gap-3 p-3.5">
+                  <Scale size={20} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+                  <div>
+                    <p className="text-[0.9375rem] leading-snug">
+                      {nombreSujeto(deudor.id)} {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
+                      {nombreObjeto(acreedor.id)}:{" "}
+                      <span className="num font-bold text-warning">{fmt(acreedor.saldo)}</span>
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted">Saldo acumulado — no se resetea cada mes</p>
+                  </div>
                 </div>
               ) : totalCompartido > 0 ? (
-                <p className="text-xs text-slate-500 text-center py-1">✓ Están en paz</p>
+                <p className="flex items-center justify-center gap-1.5 py-1 text-sm text-success">
+                  <CircleCheck size={16} aria-hidden="true" /> Están en paz
+                </p>
               ) : null}
-            </div>
+            </section>
 
             {/* ── Stats rápidas ──────────────────────────────────────────── */}
             {totalCompartido > 0 && (
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="bg-slate-900 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><CalendarDays size={11} /> Promedio diario</p>
-                  <p className="font-bold text-sm">{fmt(promedioDiario)}</p>
+              <div className="mb-3 grid grid-cols-2 gap-2.5">
+                <div className="card p-3.5">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted"><CalendarDays size={13} /> Promedio diario</p>
+                  <p className="num font-display text-lg font-semibold">{fmt(promedioDiario)}</p>
                 </div>
-                <div className="bg-slate-900 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Flame size={11} /> Gasto más grande</p>
-                  <p className="font-bold text-sm truncate">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
-                  {gastoMasGrande && <p className="text-[11px] text-slate-500 truncate">{gastoMasGrande.concepto}</p>}
+                <div className="card p-3.5">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted"><Flame size={13} /> Gasto más grande</p>
+                  <p className="num font-display truncate text-lg font-semibold">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
+                  {gastoMasGrande && <p className="truncate text-sm text-muted">{gastoMasGrande.concepto}</p>}
                 </div>
               </div>
             )}
 
             {totalPersonal > 0 && (
-              <div className="bg-slate-900 rounded-xl px-4 py-3 mb-3 flex items-center justify-between">
-                <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={11} /> Tus gastos personales</p>
-                <p className="font-bold text-sm">{fmt(totalPersonal)}</p>
+              <div className="card mb-3 flex items-center justify-between px-4 py-3.5">
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-secondary"><Lock size={14} /> Tus gastos personales</p>
+                <p className="num font-display text-lg font-semibold">{fmt(totalPersonal)}</p>
               </div>
             )}
 
             {/* ── Insights — lo que cambió, sin tener que ir a buscarlo ──── */}
             {insights.length > 0 && (
-              <div className="space-y-2 mb-3">
+              <ul className="mb-3 space-y-2">
                 {insights.map(i => (
-                  <div
-                    key={i.id}
-                    className={`rounded-xl p-3 flex items-start gap-2.5 ${
-                      i.delta > 0 ? "bg-red-500/10 border border-red-500/20" : "bg-green-500/10 border border-green-500/20"
-                    }`}
-                  >
-                    <span className="text-lg shrink-0">{i.emoji}</span>
-                    <p className="text-sm text-slate-300 leading-snug">
+                  <li key={i.id} className={`card flex items-start gap-3 p-3.5 ${i.delta > 0 ? "tone-danger" : "tone-success"}`}>
+                    {i.delta > 0
+                      ? <TrendingUp size={20} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
+                      : <TrendingDown size={20} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />}
+                    <p className="text-[0.9375rem] leading-snug text-secondary">
                       Gastaste{" "}
-                      <span className={`font-semibold ${i.delta > 0 ? "text-red-400" : "text-green-400"}`}>
+                      <span className={`font-bold ${i.delta > 0 ? "text-danger" : "text-success"}`}>
                         {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
                       </span>{" "}
-                      en {i.nombre} este mes — {fmt(i.actual)} vs {fmt(i.anterior)} en {nombreMes(mesAnteriorDe(mesActivo))}.
+                      en {i.nombre} este mes — <span className="num">{fmt(i.actual)}</span> vs <span className="num">{fmt(i.anterior)}</span> en {nombreMes(mesAnteriorDe(mesActivo))}.
                     </p>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
 
             {/* ── Presupuestos por categoría ───────────────────────────────── */}
-            <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
+            <section className="card mb-3 overflow-hidden">
               <button
                 onClick={() => setMostrarPresupuestos(v => !v)}
-                className="w-full flex items-center justify-between p-4"
+                aria-expanded={mostrarPresupuestos}
+                aria-controls="panel-presupuestos"
+                className="flex min-h-[56px] w-full items-center justify-between px-4"
               >
-                <p className="text-xs text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-                  <Target size={12} /> Presupuestos
+                <span className="section-label flex items-center gap-2">
+                  <Target size={14} aria-hidden="true" /> Presupuestos
                   {progresoPresupuestos.some(p => p.estado === "excedido") && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                    <span className="h-2 w-2 rounded-full bg-[var(--danger)]" aria-label="Hay presupuestos excedidos" />
                   )}
-                </p>
-                <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarPresupuestos ? "rotate-180" : ""}`} />
+                </span>
+                <ChevronDown size={18} className={`text-muted transition-transform ${mostrarPresupuestos ? "rotate-180" : ""}`} aria-hidden="true" />
               </button>
 
               {mostrarPresupuestos && (
-                <div className="px-4 pb-4 space-y-3">
+                <div id="panel-presupuestos" className="space-y-4 px-4 pb-4">
                   {progresoPresupuestos.length === 0 && categoriasSinPresupuesto.length === 0 && (
-                    <p className="text-xs text-slate-500 py-2">
+                    <p className="py-2 text-sm text-muted">
                       Sin presupuestos todavía. Se activan solo en categorías donde ya hay gasto compartido este mes.
                     </p>
                   )}
@@ -656,76 +704,57 @@ function FinanzasContent() {
                   {progresoPresupuestos.map(p => (
                     <div key={p.categoriaId}>
                       {editandoPresupuestoId === p.categoriaId ? (
-                        <div className="bg-slate-800 rounded-lg p-3 space-y-2">
-                          <p className="text-xs text-slate-400">{p.emoji} {p.nombre} — presupuesto mensual</p>
-                          <div className="flex gap-2">
-                            <input
-                              value={montoPresupuestoInput}
-                              onChange={e => setMontoPresupuestoInput(e.target.value)}
-                              onKeyDown={e => e.key === "Enter" && guardarPresupuesto()}
-                              type="number"
-                              min="0"
-                              placeholder="Monto mensual"
-                              autoFocus
-                              className="flex-1 p-2.5 rounded-lg bg-slate-900 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                            />
-                            <button
-                              onClick={guardarPresupuesto}
-                              disabled={guardandoPresupuesto || !montoPresupuestoInput}
-                              className="px-3 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 flex items-center justify-center"
-                            >
-                              <Check size={16} />
-                            </button>
-                            <button
-                              onClick={cerrarEdicionPresupuesto}
-                              className="px-3 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </div>
+                        editorPresupuesto(p.nombre)
                       ) : (
                         <div>
-                          <div className="flex justify-between items-center text-xs mb-1">
-                            <span className="text-slate-300 flex items-center gap-1">
-                              {p.emoji} {p.nombre}
-                              {p.estado === "excedido" && <AlertTriangle size={11} className="text-red-400" />}
+                          <div className="mb-1.5 flex items-center justify-between gap-2">
+                            <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+                              <span aria-hidden="true">{p.emoji}</span>
+                              <span className="truncate">{p.nombre}</span>
+                              {p.estado === "excedido" && <AlertTriangle size={14} className="shrink-0 text-danger" aria-hidden="true" />}
                             </span>
-                            <div className="flex items-center gap-2">
-                              <span className={`font-medium ${
-                                p.estado === "excedido" ? "text-red-400" :
-                                p.estado === "cerca"    ? "text-amber-400" :
-                                                           "text-slate-400"
+                            <div className="flex shrink-0 items-center">
+                              <span className={`num mr-1 text-sm font-semibold ${
+                                p.estado === "excedido" ? "text-danger" :
+                                p.estado === "cerca"    ? "text-warning" :
+                                                           "text-secondary"
                               }`}>
                                 {fmt(p.actual)} / {fmt(p.monto)}
                               </span>
-                              <button onClick={() => abrirEdicionPresupuesto(p.categoriaId, p.monto)} className="text-slate-500 hover:text-slate-300">
-                                <Pencil size={12} />
+                              <button onClick={() => abrirEdicionPresupuesto(p.categoriaId, p.monto)} className="icon-btn is-accent !h-11 !w-9" aria-label={`Editar presupuesto de ${p.nombre}`}>
+                                <Pencil size={15} />
                               </button>
-                              <button onClick={() => eliminarPresupuesto(p.categoriaId)} className="text-slate-500 hover:text-red-400">
-                                <Trash2 size={12} />
+                              <button onClick={() => setPresupuestoAQuitar(p.categoriaId)} className="icon-btn is-danger !h-11 !w-9" aria-label={`Quitar presupuesto de ${p.nombre}`}>
+                                <Trash2 size={15} />
                               </button>
                             </div>
                           </div>
-                          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            role="progressbar"
+                            aria-label={`Presupuesto de ${p.nombre}`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.min(p.pct, 100)}
+                            className="h-2.5 overflow-hidden rounded-full bg-[var(--surface-3)]"
+                          >
                             <div
-                              className={`h-full rounded-full transition-all ${
-                                p.estado === "excedido" ? "bg-red-500" :
-                                p.estado === "cerca"    ? "bg-amber-500" :
-                                                           "bg-blue-500"
-                              }`}
-                              style={{ width: `${Math.min(p.pct, 100)}%` }}
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${Math.min(p.pct, 100)}%`,
+                                background:
+                                  p.estado === "excedido" ? "var(--danger)" :
+                                  p.estado === "cerca"    ? "var(--warning)" :
+                                                             "var(--accent)",
+                              }}
                             />
                           </div>
                           {p.estado === "excedido" && (
-                            <p className="text-[11px] text-red-400 mt-1">
-                              Te pasaste por {fmt(p.actual - p.monto)} este mes.
+                            <p className="mt-1 text-sm text-danger">
+                              Te pasaste por <span className="num">{fmt(p.actual - p.monto)}</span> este mes.
                             </p>
                           )}
                           {p.estado === "cerca" && (
-                            <p className="text-[11px] text-amber-400 mt-1">
-                              Vas en {p.pct}% del presupuesto.
-                            </p>
+                            <p className="mt-1 text-sm text-warning">Vas en {p.pct}% del presupuesto.</p>
                           )}
                         </div>
                       )}
@@ -733,86 +762,56 @@ function FinanzasContent() {
                   ))}
 
                   {categoriasSinPresupuesto.length > 0 && (
-                    <div className="pt-1">
-                      <p className="text-[11px] text-slate-500 mb-2">Ponerle presupuesto a:</p>
-                      <div className="flex flex-wrap gap-1.5">
+                    <div>
+                      <p className="mb-2 text-sm text-muted">Ponerle presupuesto a:</p>
+                      <div className="flex flex-wrap gap-2">
                         {categoriasSinPresupuesto.map(c => (
-                          <button
-                            key={c.id}
-                            onClick={() => abrirEdicionPresupuesto(c.id)}
-                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 flex items-center gap-1"
-                          >
-                            {c.emoji} {c.nombre}
+                          <button key={c.id} onClick={() => abrirEdicionPresupuesto(c.id)} className="chip">
+                            <span aria-hidden="true">{c.emoji}</span> {c.nombre}
                           </button>
                         ))}
                       </div>
                       {editandoPresupuestoId && !progresoPresupuestos.some(p => p.categoriaId === editandoPresupuestoId) && (
-                        <div className="bg-slate-800 rounded-lg p-3 space-y-2 mt-2">
-                          <p className="text-xs text-slate-400">
-                            {categorias.find(c => c.id === editandoPresupuestoId)?.emoji}{" "}
-                            {categorias.find(c => c.id === editandoPresupuestoId)?.nombre} — presupuesto mensual
-                          </p>
-                          <div className="flex gap-2">
-                            <input
-                              value={montoPresupuestoInput}
-                              onChange={e => setMontoPresupuestoInput(e.target.value)}
-                              onKeyDown={e => e.key === "Enter" && guardarPresupuesto()}
-                              type="number"
-                              min="0"
-                              placeholder="Monto mensual"
-                              autoFocus
-                              className="flex-1 p-2.5 rounded-lg bg-slate-900 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                            />
-                            <button
-                              onClick={guardarPresupuesto}
-                              disabled={guardandoPresupuesto || !montoPresupuestoInput}
-                              className="px-3 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 flex items-center justify-center"
-                            >
-                              <Check size={16} />
-                            </button>
-                            <button
-                              onClick={cerrarEdicionPresupuesto}
-                              className="px-3 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
+                        <div className="mt-3">
+                          {editorPresupuesto(categorias.find(c => c.id === editandoPresupuestoId)?.nombre ?? "Categoría")}
                         </div>
                       )}
                     </div>
                   )}
                 </div>
               )}
-            </div>
+            </section>
 
             {/* ── Desglose por categoría — colapsado por defecto ─────────── */}
             {categoriasComparadas.length > 0 && (
-              <div className="bg-slate-900 rounded-2xl mb-4 overflow-hidden">
+              <section className="card mb-5 overflow-hidden">
                 <button
                   onClick={() => setMostrarDesglose(v => !v)}
-                  className="w-full flex items-center justify-between p-4"
+                  aria-expanded={mostrarDesglose}
+                  aria-controls="panel-desglose"
+                  className="flex min-h-[56px] w-full items-center justify-between px-4"
                 >
-                  <p className="text-xs text-slate-400 uppercase tracking-wide">Desglose por categoría</p>
-                  <ChevronDown size={16} className={`text-slate-500 transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} />
+                  <span className="section-label">Desglose por categoría</span>
+                  <ChevronDown size={18} className={`text-muted transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} aria-hidden="true" />
                 </button>
                 {mostrarDesglose && (
-                  <div className="px-4 pb-4 space-y-3">
-                    <p className="text-[11px] text-slate-500 flex items-center gap-1 -mt-1">
-                      <span className="w-2 h-0.5 bg-white/60 inline-block" /> mes anterior
+                  <div id="panel-desglose" className="space-y-3.5 px-4 pb-4">
+                    <p className="-mt-1 flex items-center gap-2 text-sm text-muted">
+                      <span className="inline-block h-3 w-0.5 bg-white/70" aria-hidden="true" /> marca = mes anterior
                     </p>
                     {categoriasComparadas.map(c => {
                       const pctActual   = (c.actual   / maxBarra) * 100
                       const pctAnterior = (c.anterior / maxBarra) * 100
                       return (
                         <div key={c.id}>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-slate-300">{c.emoji} {c.nombre}</span>
-                            <span className="font-medium">{fmt(c.actual)}</span>
+                          <div className="mb-1.5 flex justify-between gap-2 text-sm">
+                            <span className="truncate text-secondary"><span aria-hidden="true">{c.emoji}</span> {c.nombre}</span>
+                            <span className="num font-semibold">{fmt(c.actual)}</span>
                           </div>
-                          <div className="relative h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="absolute inset-y-0 left-0 bg-blue-600 rounded-full transition-all" style={{ width: `${pctActual}%` }} />
+                          <div className="relative h-2.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                            <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{ width: `${pctActual}%`, background: "var(--accent)" }} />
                             {c.anterior > 0 && (
-                              <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${Math.min(pctAnterior, 99.5)}%` }} />
+                              <div className="absolute inset-y-0 w-0.5 bg-white/80" style={{ left: `${Math.min(pctAnterior, 99.5)}%` }} />
                             )}
                           </div>
                         </div>
@@ -820,21 +819,15 @@ function FinanzasContent() {
                     })}
                   </div>
                 )}
-              </div>
+              </section>
             )}
 
             {/* ── Filtros + lista de movimientos ─────────────────────────── */}
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-slate-400 uppercase tracking-wide">Movimientos</p>
-              <div className="flex gap-1.5">
+            <div className="mb-3">
+              <h2 className="section-label mb-2.5">Movimientos</h2>
+              <div className="grid grid-cols-3 gap-2" role="group" aria-label="Filtrar movimientos">
                 {(["todos", "compartido", "privado"] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setFiltro(f)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
-                      filtro === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                    }`}
-                  >
+                  <button key={f} onClick={() => setFiltro(f)} aria-pressed={filtro === f} className="chip">
                     {f === "todos" ? "Todos" : f === "compartido" ? "Compartidos" : "Personales"}
                   </button>
                 ))}
@@ -842,31 +835,32 @@ function FinanzasContent() {
             </div>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3">{error}</div>
+              <div role="alert" className="card tone-danger mb-3 p-3.5 text-sm text-danger">{error}</div>
             )}
 
             {gastosFiltrados.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <p className="text-3xl mb-2">💸</p>
-                <p className="text-sm">No hay gastos este mes</p>
-              </div>
+              <EmptyState icon={Receipt} title="No hay gastos este mes" description="Toca + para registrar el primero." />
             ) : (
-              <div className="space-y-2 pb-24">
+              <ul className="space-y-2">
                 {gastosFiltrados.map(g => (
-                  <div
+                  <li
                     key={g.id}
-                    className={`rounded-xl p-4 flex items-center justify-between group transition ${
-                      g.id === editandoId ? "bg-slate-900 ring-1 ring-blue-500" : "bg-slate-900"
-                    }`}
+                    className="card flex items-center justify-between gap-1 p-3 pl-3.5"
+                    style={g.id === editandoId ? { borderColor: "var(--accent)" } : undefined}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-xl shrink-0">{g.categorias?.emoji ?? "📦"}</span>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--surface-2)] text-xl">
+                        {g.categorias?.emoji
+                          ? <span aria-hidden="true">{g.categorias.emoji}</span>
+                          : <Package size={20} className="text-muted" aria-hidden="true" />}
+                      </span>
                       <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">{g.concepto}</p>
-                        <p className="text-xs text-slate-400 flex items-center gap-1">
-                          {g.fecha} ·{" "}
+                        <p className="line-clamp-2 font-semibold leading-snug">{g.concepto}</p>
+                        <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+                          <span>{fmtFechaCorta(g.fecha)}</span>
+                          <span aria-hidden="true">·</span>
                           {g.visibilidad === "privado" ? (
-                            <span className="flex items-center gap-0.5"><Lock size={10} /> Personal</span>
+                            <span className="flex items-center gap-1"><Lock size={12} aria-hidden="true" /> Personal</span>
                           ) : (
                             <span>
                               {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreSujeto(g.pagado_por)}`}
@@ -876,184 +870,170 @@ function FinanzasContent() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <p className="font-bold text-sm">{fmt(Number(g.valor))}</p>
-                      <button onClick={() => editarGasto(g)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800 active:bg-slate-700 transition">
-                        <Pencil size={16} />
+                    <div className="flex shrink-0 items-center">
+                      <p className="num font-display mr-0.5 text-base font-semibold">{fmt(Number(g.valor))}</p>
+                      <button onClick={() => editarGasto(g)} className="icon-btn is-accent" aria-label={`Editar ${g.concepto}`}>
+                        <Pencil size={17} />
                       </button>
-                      <button onClick={() => eliminarGasto(g.id)} className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800 active:bg-slate-700 transition">
-                        <Trash2 size={16} />
+                      <button onClick={() => setGastoAEliminar(g)} className="icon-btn is-danger" aria-label={`Eliminar ${g.concepto}`}>
+                        <Trash2 size={17} />
                       </button>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </>
         )}
 
         {/* ── Botón flotante ───────────────────────────────────────────── */}
-{!modalAbierto && (
-<button
-  onClick={abrirNuevo}
-  className="
-    fixed
-    bottom-[88px]
-    right-4
-    w-14 h-14
-    rounded-full
-    bg-blue-600
-    shadow-lg
-    flex items-center justify-center
-    z-40
-  "
->
-  <Plus size={26}/>
-</button>
-)}
+        {!modalAbierto && (
+          <button onClick={abrirNuevo} className="fab" aria-label="Agregar gasto">
+            <Plus size={26} />
+          </button>
+        )}
+
         {/* ── Bottom sheet: formulario ─────────────────────────────────── */}
-        {modalAbierto && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
-            <div
-              className={`relative w-full 
-                max-w-md bg-slate-900 rounded-t-3xl 
-                p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 
-                transition-transform duration-300 ease-out ${
-                hojaVisible ? "translate-y-0" : "translate-y-full"
-              }`}
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editando gasto" : "Nuevo gasto"}>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de gasto">
+            <button onClick={() => setVisibilidad("compartido")} aria-pressed={visibilidad === "compartido"} className="chip !rounded-2xl">
+              <Users size={16} /> Compartido
+            </button>
+            <button
+              onClick={() => !editandoAjeno && setVisibilidad("privado")}
+              disabled={editandoAjeno}
+              aria-pressed={!editandoAjeno && visibilidad === "privado"}
+              title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
+              className="chip !rounded-2xl"
             >
-              <div className="flex items-center justify-between sticky top-0 bg-slate-900 pb-1">
-                <p className="text-sm font-semibold">{editandoId ? "Editando gasto" : "Nuevo gasto"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition">
-                  <X size={18} />
-                </button>
-              </div>
+              <Lock size={16} /> Personal
+            </button>
+          </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setVisibilidad("compartido")}
-                  className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    visibilidad === "compartido" ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                  }`}
-                >
-                  <Users size={13} /> Compartido
-                </button>
-                <button
-                  onClick={() => !editandoAjeno && setVisibilidad("privado")}
-                  disabled={editandoAjeno}
-                  title={editandoAjeno ? "No puedes hacer privado un gasto de tu pareja" : undefined}
-                  className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    editandoAjeno          ? "bg-slate-800/40 text-slate-600 cursor-not-allowed" :
-                    visibilidad==="privado"? "bg-blue-600 text-white" :
-                                             "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                  }`}
-                >
-                  <Lock size={13} /> Personal
-                </button>
-              </div>
+          <div>
+            <label htmlFor="g-concepto" className="field-label">Concepto</label>
+            <input
+              id="g-concepto"
+              value={concepto}
+              onChange={e => setConcepto(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && guardarGasto()}
+              placeholder="¿En qué gastaste?"
+              autoFocus
+              className="field"
+            />
+          </div>
 
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label htmlFor="g-valor" className="field-label">Valor</label>
               <input
-                value={concepto}
-                onChange={e => setConcepto(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && guardarGasto()}
-                placeholder="¿En qué gastaste?"
-                autoFocus
-                
-                className="w-full p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                id="g-valor"
+                value={valor}
+                onChange={e => setValor(e.target.value)}
+                placeholder="0"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                className="field num"
               />
-
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  value={valor}
-                  onChange={e => setValor(e.target.value)}
-                  placeholder="Valor"
-                  type="number"
-                  min="0"
-                  className="p-3 rounded-lg bg-slate-800 placeholder-slate-500 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <input
-                  value={fecha}
-                  onChange={e => setFecha(e.target.value)}
-                  type="date"
-                  className="p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <select
-                value={categoriaId}
-                onChange={e => setCategoriaId(e.target.value)}
-                className="w-full p-3 rounded-lg bg-slate-800 text-sm text-slate-300 outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">Sin categoría</option>
-                {categorias.map(c => (
-                  <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
-                ))}
-              </select>
-
-              {visibilidad === "compartido" && (
-                <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <p className="text-xs text-slate-500">¿Quién puso el dinero?</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {perfiles.map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => setPagadoPor(p.id)}
-                        className={`p-2 rounded-lg text-xs font-medium truncate transition ${
-                          pagadoPor === p.id ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                        }`}
-                      >
-                        {esYo(p.id) ? `Yo (${p.nombre})` : p.nombre}
-                      </button>
-                    ))}
-                  </div>
-
-                  <p className="text-xs text-slate-500">
-                    ¿Cómo se divide? — a quien pagó le corresponde el{" "}
-                    <span className="text-white font-medium">{pctPagador}%</span>
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { v: 50,  label: "50 / 50" },
-                      { v: 100, label: "Todo suyo" },
-                      { v: 0,   label: `Todo de ${otroPerfil?.nombre ?? "el otro"}` },
-                    ].map(opt => (
-                      <button
-                        key={opt.v}
-                        onClick={() => setPctPagador(opt.v)}
-                        className={`p-2 rounded-lg text-[11px] leading-tight font-medium transition ${
-                          pctPagador === opt.v ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {valor && Number(valor) > 0 && pagadoPor && (
-                    <div className="bg-slate-800 rounded-lg px-3 py-2 text-xs text-slate-400">
-                      {pctPagador === 100
-                        ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
-                        : pctPagador === 0
-                        ? <span>{nombreSujeto(pagadoPor)} adelanta <span className="text-white">{fmt(Number(valor))}</span> que es responsabilidad de {nombreObjeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)}</span>
-                        : <span>{nombreSujeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)} debe <span className="text-white">{fmt(Number(valor) * (100 - pctPagador) / 100)}</span></span>
-                      }
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <button
-                onClick={guardarGasto}
-                disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition"
-              >
-                <Plus size={16} />
-                {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}
-              </button>
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="g-fecha" className="field-label">Fecha</label>
+              <input id="g-fecha" value={fecha} onChange={e => setFecha(e.target.value)} type="date" className="field min-w-0" />
             </div>
           </div>
-        )}
+
+          <div>
+            <label htmlFor="g-cat" className="field-label">Categoría</label>
+            <select id="g-cat" value={categoriaId} onChange={e => setCategoriaId(e.target.value)} className="field">
+              <option value="">Sin categoría</option>
+              {categorias.map(c => (
+                <option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          {visibilidad === "compartido" && (
+            <div className="space-y-3 border-t border-[var(--border)] pt-3">
+              <fieldset>
+                <legend className="field-label">¿Quién puso el dinero?</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {perfiles.map(p => (
+                    <button key={p.id} onClick={() => setPagadoPor(p.id)} aria-pressed={pagadoPor === p.id} className="chip !rounded-2xl truncate">
+                      {esYo(p.id) ? `Yo (${p.nombre})` : p.nombre}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend className="field-label">
+                  ¿Cómo se divide? — a quien pagó le corresponde el{" "}
+                  <span className="num font-bold text-[var(--foreground)]">{pctPagador}%</span>
+                </legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { v: 50,  label: "50 / 50" },
+                    { v: 100, label: "Todo suyo" },
+                    { v: 0,   label: `Todo de ${otroPerfil?.nombre ?? "el otro"}` },
+                  ].map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setPctPagador(opt.v)}
+                      aria-pressed={pctPagador === opt.v}
+                      className="chip !rounded-2xl !px-2 text-center leading-tight"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              {valor && Number(valor) > 0 && pagadoPor && (
+                <div className="rounded-2xl bg-[var(--surface-2)] px-3.5 py-3 text-sm text-secondary" role="status">
+                  {pctPagador === 100
+                    ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
+                    : pctPagador === 0
+                    ? <span>{nombreSujeto(pagadoPor)} adelanta <span className="num font-bold text-[var(--foreground)]">{fmt(Number(valor))}</span> que es responsabilidad de {nombreObjeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)}</span>
+                    : <span>{nombreSujeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)} debe <span className="num font-bold text-[var(--foreground)]">{fmt(Number(valor) * (100 - pctPagador) / 100)}</span></span>
+                  }
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={guardarGasto}
+            disabled={guardando || !concepto || !valor || (visibilidad === "compartido" && !pagadoPor)}
+            className="btn btn-primary w-full"
+          >
+            <Plus size={18} />
+            {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}
+          </button>
+        </Sheet>
+
+        <ConfirmDialog
+          open={!!gastoAEliminar}
+          title="¿Eliminar gasto?"
+          message={gastoAEliminar ? `Se eliminará "${gastoAEliminar.concepto}" por ${fmt(Number(gastoAEliminar.valor))}.` : ""}
+          onCancel={() => setGastoAEliminar(null)}
+          onConfirm={() => {
+            if (gastoAEliminar) eliminarGasto(gastoAEliminar.id)
+            setGastoAEliminar(null)
+          }}
+        />
+
+        <ConfirmDialog
+          open={!!presupuestoAQuitar}
+          title="¿Quitar presupuesto?"
+          message="Se quitará el presupuesto de esta categoría. Los gastos no se tocan."
+          confirmLabel="Quitar"
+          onCancel={() => setPresupuestoAQuitar(null)}
+          onConfirm={() => {
+            if (presupuestoAQuitar) eliminarPresupuesto(presupuestoAQuitar)
+            setPresupuestoAQuitar(null)
+          }}
+        />
 
       </div>
     </main>

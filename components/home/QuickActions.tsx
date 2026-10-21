@@ -2,25 +2,30 @@ import Link from "next/link"
 import { Wallet, CalendarPlus, FileUp } from "lucide-react"
 
 const ACCIONES = [
-  { href: "/finanzas",   Icon: Wallet,      label: "Gasto"     },
+  { href: "/finanzas",   Icon: Wallet,       label: "Gasto"     },
   { href: "/calendario", Icon: CalendarPlus, label: "Evento"    },
   { href: "/documentos", Icon: FileUp,       label: "Documento" },
 ]
 
 export default function QuickActions() {
   return (
-    <section>
-      <p className="text-xs uppercase tracking-widest text-muted mb-3">
-        Acciones rápidas
-      </p>
+    <section aria-labelledby="acciones">
+      <h2 id="acciones" className="section-label mb-3">Acciones rápidas</h2>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2.5">
         {ACCIONES.map(({ href, Icon, label }) => (
-          <Link key={href} href={href}>
-            <div className="surface border-subtle rounded-2xl p-4 flex flex-col items-center gap-2 hover:opacity-80 active:scale-95 transition-all">
-              <Icon size={20} style={{ color: "var(--accent)" }} strokeWidth={1.5} />
-              <p className="text-xs text-secondary">{label}</p>
-            </div>
+          <Link
+            key={href}
+            href={href}
+            className="card flex min-h-[92px] flex-col items-center justify-center gap-2 p-3 transition-all hover:border-[var(--border-strong)] active:scale-[0.97]"
+          >
+            <span
+              className="flex h-11 w-11 items-center justify-center rounded-2xl"
+              style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)" }}
+            >
+              <Icon size={22} strokeWidth={1.75} style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+            </span>
+            <span className="text-sm font-semibold">{label}</span>
           </Link>
         ))}
       </div>

@@ -5,8 +5,9 @@ import { supabase } from "@/lib/supabase"
 import { useUser } from "@/hooks/useUser"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { LogOut, Save, User, Shield, Palette, Users, ChevronRight, Bell, BellOff, BellRing } from "lucide-react"
-import { ACCENT_COLORS, getAccentByValue, type AccentColor } from "@/lib/colors"
+import { LogOut, Save, User, Shield, Palette, Users, ChevronRight, Bell, BellOff, BellRing, Check } from "lucide-react"
+import { ACCENT_COLORS, getAccentByValue, applyAccentToRoot, onAccentFor, type AccentColor } from "@/lib/colors"
+import PageHeader from "@/components/PageHeader"
 import { requestNotificationPermission } from "@/lib/firebase"
 
 type Perfil = { id: string; nombre: string; email: string; avatar_url: string | null; accent_color: string }
@@ -69,7 +70,7 @@ export default function ConfiguracionPage() {
       const { refrescarTokenSiYaHabilitado } = await import("@/lib/firebase")
       const token = await refrescarTokenSiYaHabilitado()
       if (token) {
-        setResultadoPush(`✓ Token guardado correctamente: ...${token.slice(-8)}`)
+        setResultadoPush(`Token guardado correctamente: ...${token.slice(-8)}`)
       } else {
         setResultadoPush(null)
         setError("El navegador no devolvió un token. Puede ser la VAPID key, el service worker, o el permiso del sistema operativo.")
@@ -93,12 +94,6 @@ export default function ConfiguracionPage() {
     })
   }, [user])
 
-  const applyAccent = (a: AccentColor) => {
-    document.documentElement.style.setProperty("--accent", a.value)
-    document.documentElement.style.setProperty("--accent-from", a.from)
-    document.documentElement.style.setProperty("--accent-to", a.to)
-  }
-
   const guardar = async () => {
     if (!user || !nombre.trim()) return
     setGuardando(true)
@@ -112,7 +107,7 @@ export default function ConfiguracionPage() {
     if (err) {
       setError("No se pudo guardar.")
     } else {
-      applyAccent(accent)
+      applyAccentToRoot(accent)
       setGuardado(true)
       setTimeout(() => setGuardado(false), 2000)
     }
@@ -126,121 +121,134 @@ export default function ConfiguracionPage() {
 
   if (authLoading || loading) {
     return (
-      <main className="min-h-screen p-4 pb-28">
-        <div className="max-w-md mx-auto space-y-3 mt-8">
-          {[1,2,3].map(i => <div key={i} className="surface rounded-2xl h-16 animate-pulse" />)}
+      <main className="page-shell">
+        <div className="page space-y-3 pt-8" aria-hidden="true">
+          {[1,2,3].map(i => <div key={i} className="skeleton h-20" />)}
         </div>
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen p-4 pb-28">
-      <div className="max-w-md mx-auto">
+    <main className="page-shell">
+      <div className="page space-y-3">
 
-        <h1 className="text-2xl font-semibold mb-6">Configuración</h1>
+        <PageHeader title="Ajustes" />
 
         {/* Perfil */}
-        <div className="surface border-subtle rounded-2xl p-4 mb-3 flex items-center gap-4">
+        <section className="card flex items-center gap-4 p-4" aria-label="Tu perfil">
           {perfil?.avatar_url ? (
-            <img src={perfil.avatar_url} alt={perfil.nombre} className="w-14 h-14 rounded-full object-cover" />
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={perfil.avatar_url} alt="" className="h-16 w-16 rounded-full object-cover" />
           ) : (
-            <div className="w-14 h-14 rounded-full bg-[var(--surface-2)] flex items-center justify-center shrink-0">
-              <User size={24} className="text-muted" />
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)]">
+              <User size={26} className="text-muted" />
             </div>
           )}
           <div className="min-w-0">
-            <p className="font-medium truncate">{perfil?.nombre}</p>
-            <p className="text-sm text-secondary truncate">{perfil?.email}</p>
+            <p className="font-display truncate text-xl font-semibold">{perfil?.nombre}</p>
+            <p className="truncate text-sm text-secondary">{perfil?.email}</p>
           </div>
-        </div>
+        </section>
 
         {/* Miembros del hogar — antes era /familia, ruta huérfana sin acceso en el nav */}
-        <Link href="/familia">
-          <div className="surface border-subtle rounded-2xl p-4 mb-3 flex items-center gap-4 active:opacity-70 transition">
-            <div className="w-11 h-11 rounded-xl bg-[var(--surface-2)] flex items-center justify-center shrink-0">
-              <Users size={18} style={{ color: "var(--accent)" }} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-sm">Miembros del hogar</p>
-              <p className="text-xs text-secondary">Personas y mascotas que conviven contigo</p>
-            </div>
-            <ChevronRight size={16} className="text-muted shrink-0" />
-          </div>
+        <Link
+          href="/familia"
+          className="card flex min-h-[72px] items-center gap-4 p-4 transition-colors hover:border-[var(--border-strong)] active:bg-[var(--surface-2)]"
+        >
+          <span
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
+            style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)" }}
+          >
+            <Users size={22} style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Miembros del hogar</span>
+            <span className="block text-sm text-secondary">Personas y mascotas que conviven contigo</span>
+          </span>
+          <ChevronRight size={18} className="shrink-0 text-muted" aria-hidden="true" />
         </Link>
 
         {/* Nombre */}
-        <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
-          <p className="text-xs uppercase tracking-widest text-muted">Tu nombre en la app</p>
+        <section className="card space-y-2 p-4">
+          <label htmlFor="nombre" className="section-label block">Tu nombre en la app</label>
           <input
+            id="nombre"
             value={nombre}
             onChange={e => setNombre(e.target.value)}
             onKeyDown={e => e.key === "Enter" && guardar()}
             placeholder="Tu nombre"
-            className="w-full p-3 rounded-xl bg-[var(--surface-2)] text-sm outline-none focus:ring-1 placeholder:text-muted"
-            style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
+            autoComplete="given-name"
+            className="field"
           />
-        </div>
+        </section>
 
         {/* Color de acento */}
-        <div className="surface border-subtle rounded-2xl p-4 mb-3">
-          <div className="flex items-center gap-2 mb-4">
-            <Palette size={15} style={{ color: "var(--accent)" }} />
-            <p className="text-xs uppercase tracking-widest text-muted">Tu color de acento</p>
+        <section className="card p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Palette size={16} style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+            <h2 className="section-label">Tu color de acento</h2>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {ACCENT_COLORS.map(c => (
-              <button
-                key={c.id}
-                onClick={() => setAccent(c)}
-                className="flex items-center gap-2 p-2.5 rounded-xl border transition-all"
-                style={{
-                  background: accent.id === c.id
-                    ? `color-mix(in srgb, ${c.value} 12%, transparent)`
-                    : "var(--surface-2)",
-                  borderColor: accent.id === c.id ? c.value : "rgba(255,255,255,0.07)",
-                  borderWidth: accent.id === c.id ? "1px" : "0.5px",
-                }}
-              >
-                <div
-                  className="w-5 h-5 rounded-full shrink-0"
-                  style={{ background: `linear-gradient(135deg, ${c.from}, ${c.to})` }}
-                />
-                <span className="text-xs font-medium" style={{ color: accent.id === c.id ? c.value : "rgba(255,255,255,0.4)" }}>
-                  {c.name}
-                </span>
-              </button>
-            ))}
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Color de acento">
+            {ACCENT_COLORS.map(c => {
+              const activo = accent.id === c.id
+              return (
+                <button
+                  key={c.id}
+                  role="radio"
+                  aria-checked={activo}
+                  onClick={() => setAccent(c)}
+                  className="relative flex min-h-[64px] flex-col items-center justify-center gap-1.5 rounded-2xl border p-2 transition-all"
+                  style={{
+                    background: activo ? `color-mix(in srgb, ${c.value} 14%, var(--surface-2))` : "var(--surface-2)",
+                    borderColor: activo ? c.value : "var(--border)",
+                    borderWidth: activo ? 2 : 1,
+                  }}
+                >
+                  <span
+                    className="flex h-7 w-7 items-center justify-center rounded-full"
+                    style={{ background: `linear-gradient(135deg, ${c.from}, ${c.to})` }}
+                  >
+                    {activo && <Check size={15} strokeWidth={3} style={{ color: onAccentFor(c) }} aria-hidden="true" />}
+                  </span>
+                  <span className={`text-xs font-semibold ${activo ? "text-[var(--foreground)]" : "text-secondary"}`}>
+                    {c.name}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        </div>
+        </section>
 
-        {error && <p className="text-red-400 text-xs mb-3 px-1">{error}</p>}
+        {error && (
+          <p role="alert" className="px-1 text-sm text-danger">{error}</p>
+        )}
 
         {/* Guardar */}
         <button
           onClick={guardar}
           disabled={guardando || !nombre.trim()}
-          className="w-full accent-gradient disabled:opacity-40 p-3.5 rounded-2xl text-sm font-medium flex items-center justify-center gap-2 transition mb-3 text-white"
+          className="btn btn-primary w-full"
         >
-          <Save size={15} />
-          {guardando ? "Guardando..." : guardado ? "✓ Guardado" : "Guardar cambios"}
+          {guardado ? <Check size={18} /> : <Save size={18} />}
+          {guardando ? "Guardando..." : guardado ? "Guardado" : "Guardar cambios"}
         </button>
 
         {/* Notificaciones push */}
-        <div className="surface border-subtle rounded-2xl p-4 mb-3 space-y-3">
+        <section className="card space-y-3 p-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[var(--surface-2)] flex items-center justify-center shrink-0">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--surface-2)]">
               {estadoPush === "granted" ? (
-                <BellRing size={18} style={{ color: "var(--accent)" }} />
+                <BellRing size={22} style={{ color: "var(--accent-text)" }} />
               ) : estadoPush === "denied" ? (
-                <BellOff size={18} className="text-red-400" />
+                <BellOff size={22} className="text-danger" />
               ) : (
-                <Bell size={18} className="text-muted" />
+                <Bell size={22} className="text-muted" />
               )}
-            </div>
+            </span>
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-sm">Notificaciones push</p>
-              <p className="text-xs text-secondary">
+              <h2 className="font-semibold">Notificaciones push</h2>
+              <p className="text-sm text-secondary" aria-live="polite">
                 {estadoPush === "granted"  ? "Permiso concedido en este dispositivo" :
                  estadoPush === "denied"   ? "Bloqueadas por el sistema" :
                  estadoPush === "unsupported" ? "No disponibles en este navegador" :
@@ -250,12 +258,8 @@ export default function ConfiguracionPage() {
           </div>
 
           {estadoPush !== "granted" && estadoPush !== "unsupported" && (
-            <button
-              onClick={activarPush}
-              disabled={activandoPush}
-              className="w-full accent-gradient disabled:opacity-40 p-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition text-white"
-            >
-              <Bell size={15} />
+            <button onClick={activarPush} disabled={activandoPush} className="btn btn-primary w-full">
+              <Bell size={18} />
               {activandoPush ? "Activando..." : "Activar notificaciones"}
             </button>
           )}
@@ -263,41 +267,37 @@ export default function ConfiguracionPage() {
           {/* Permiso ya concedido no garantiza que el token esté guardado en la
               base de datos — este botón fuerza y muestra el resultado real. */}
           {estadoPush === "granted" && (
-            <button
-              onClick={verificarToken}
-              disabled={activandoPush}
-              className="w-full surface border-subtle disabled:opacity-40 p-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition"
-            >
-              <BellRing size={15} />
+            <button onClick={verificarToken} disabled={activandoPush} className="btn btn-secondary w-full">
+              <BellRing size={18} />
               {activandoPush ? "Verificando..." : "Verificar / reintentar guardado del token"}
             </button>
           )}
 
           {resultadoPush && (
-            <p className="text-[11px] text-emerald-400 leading-relaxed">{resultadoPush}</p>
+            <p role="status" className="text-sm leading-relaxed text-success">{resultadoPush}</p>
           )}
 
           {estadoPush === "denied" && (
-            <p className="text-[11px] text-muted leading-relaxed">
+            <p className="text-sm leading-relaxed text-muted">
               iOS ya decidió por ti y no deja volver a preguntar desde la app. Bórrala del
               inicio y agrégala de nuevo desde Safari (compartir → Agregar a inicio) para
               que vuelva a preguntar.
             </p>
           )}
-        </div>
+        </section>
 
         {/* Seguridad */}
-        <div className="surface border-subtle rounded-2xl p-4 mb-3 flex items-center gap-3">
-          <Shield size={15} className="shrink-0" style={{ color: "var(--accent)" }} />
-          <p className="text-xs text-secondary">Autenticado con Google. Los datos del hogar son visibles para ambos.</p>
-        </div>
+        <section className="card flex items-center gap-3 p-4">
+          <Shield size={18} className="shrink-0" style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+          <p className="text-sm text-secondary">Autenticado con Google. Los datos del hogar son visibles para ambos.</p>
+        </section>
 
         {/* Cerrar sesión */}
         <button
           onClick={cerrarSesion}
-          className="w-full surface border-subtle hover:border-red-500/30 hover:text-red-400 text-secondary p-4 rounded-2xl text-sm font-medium flex items-center justify-center gap-2 transition"
+          className="btn btn-secondary w-full text-secondary hover:!border-[color-mix(in_srgb,var(--danger)_40%,transparent)] hover:!text-[var(--danger)]"
         >
-          <LogOut size={16} />
+          <LogOut size={18} />
           Cerrar sesión
         </button>
 

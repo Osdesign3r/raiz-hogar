@@ -14,6 +14,7 @@ export interface TimelineItem {
 
 export interface ActivityItem {
   id: string
+  kind: "gasto" | "documento"
   message: string
   time: string
   ts: number
@@ -115,7 +116,7 @@ export function useDashboard(): DashboardData {
         setBalance(`Faltan ${monto} para emparejar`)
       }
     } else {
-      setBalance("Van parejos 🤝")
+      setBalance("Van parejos")
     }
 
     const conEstado = eventos.map(e => {
@@ -137,13 +138,15 @@ export function useDashboard(): DashboardData {
     const actividades: ActivityItem[] = [
       ...gastos.map(g => ({
         id: `g-${g.id}`,
-        message: `💸 ${nombreDe(g.pagado_por)}: ${g.concepto}`,
+        kind: "gasto" as const,
+        message: `${nombreDe(g.pagado_por)}: ${g.concepto}`,
         ts: new Date(g.created_at).getTime(),
         time: new Date(g.created_at).toLocaleDateString("es-CO"),
       })),
       ...documentos.map(d => ({
         id: `d-${d.id}`,
-        message: `📄 ${nombreDe(d.created_by)}: ${d.nombre}`,
+        kind: "documento" as const,
+        message: `${nombreDe(d.created_by)}: ${d.nombre}`,
         ts: new Date(d.created_at).getTime(),
         time: new Date(d.created_at).toLocaleDateString("es-CO"),
       })),
