@@ -36,65 +36,61 @@ function LoginContent() {
       if (error) {
         clearTimeout(timer)
         setLoading(false)
-        setErrorMsg("No se pudo conectar con Google. Intenta de nuevo.")
+        setErrorMsg("No pudimos conectar con Google. Inténtalo de nuevo.")
       }
       // Si no hay error, la página redirige — el timer queda corriendo pero
       // el componente se desmonta antes de que dispare, sin efecto adverso.
     } catch {
       clearTimeout(timer)
       setLoading(false)
-      setErrorMsg("Algo salió mal. Intenta de nuevo.")
+      setErrorMsg("Algo salió mal. Inténtalo de nuevo.")
     }
   }
 
   return (
-    <main className="min-h-screen bg-[var(--background)] flex items-center justify-center p-6">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden p-6">
 
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-3xl"
-          style={{ background: "var(--accent)" }} />
+      {/* Halo de acento — decorativo */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div
+          className="absolute left-1/2 top-[-4rem] h-80 w-80 -translate-x-1/2 rounded-full opacity-25 blur-3xl"
+          style={{ background: "var(--accent)" }}
+        />
       </div>
 
-      <div className="w-full max-w-sm">
+      <div className="relative w-full max-w-sm">
 
         {/* Logo / Brand */}
-        <div className="text-center mb-10">
+        <div className="mb-10 text-center">
           <Image
             src="/icon-512.png"
-            alt="LAZO"
-            width={72}
-            height={72}
+            alt=""
+            width={80}
+            height={80}
             priority
-            className="mx-auto rounded-3xl mb-4 shadow-lg shadow-black/30"
+            className="mx-auto mb-5 rounded-[26px] shadow-2xl shadow-black/50"
           />
-          <h1 className="text-3xl font-bold tracking-wide text-white">LAZO</h1>
-          <p className="text-sm text-muted mt-1">Infinitamente conectados</p>
+          <h1 className="text-4xl font-semibold tracking-wide">LAZO</h1>
+          <p className="mt-1.5 text-base text-secondary">Infinitamente conectados</p>
         </div>
 
-        {/* Error OAuth (redirect de vuelta con ?error=auth) */}
-        {hasError && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-6 text-center">
-            Algo salió mal. Intenta de nuevo.
+        {/* Error OAuth (redirect de vuelta con ?error=auth) o local (timeout / catch) */}
+        {(hasError || errorMsg) && (
+          <div role="alert" className="card tone-danger mb-5 p-3.5 text-center text-sm text-danger">
+            {errorMsg ?? "Algo salió mal al entrar. Inténtalo de nuevo."}
           </div>
         )}
 
-        {/* Error local (timeout / catch) */}
-        {errorMsg && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-6 text-center">
-            {errorMsg}
-          </div>
-        )}
-
-        {/* Google button */}
+        {/* Google button — blanco, según las guías de marca de Google */}
         <button
           onClick={loginConGoogle}
           disabled={loading}
-          className="w-full bg-white hover:bg-gray-50 disabled:opacity-50 text-gray-900 font-medium py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition"
+          className="btn w-full min-h-[52px] bg-white text-[#1f1f28] hover:bg-[#f1f1f5]"
         >
           {loading ? (
-            <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" aria-hidden="true" />
           ) : (
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
               <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -104,14 +100,9 @@ function LoginContent() {
           {loading ? "Conectando..." : "Entrar con Google"}
         </button>
 
-        <div className="text-center mt-8">
-          {/* Fix: TÙ (acento grave) → TÚ (acento agudo) */}
-          <p className="text-xs text-muted">
-            Solo TÚ y YO tenemos acceso a este hogar
-          </p>
-          <p className="text-[11px] text-muted/60 mt-2">
-            Google solo se usa para identificarlos de forma segura
-          </p>
+        <div className="mt-8 space-y-1.5 text-center">
+          <p className="text-sm text-secondary">Este hogar es solo de ustedes dos</p>
+          <p className="text-sm text-muted">Usamos tu cuenta de Google solo para confirmar quién eres.</p>
         </div>
 
       </div>

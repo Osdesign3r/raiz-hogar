@@ -4,11 +4,15 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Evento, EventoInsert, EventoTipo, Perfil } from "@/lib/types"
 import {
-  CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil, X, Plus, Clock3,
+  CalendarPlus, Trash2, Calendar, ListChecks, Check, AlertTriangle, Pencil, Plus, Clock3, User, Leaf,
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
 import ConfirmDialog from "@/components/ConfirmDialog"
+import Sheet from "@/components/Sheet"
+import PageHeader from "@/components/PageHeader"
+import EmptyState from "@/components/EmptyState"
 import { fechaLocal } from "@/lib/fecha"
+import { primerNombre, fechaCorta } from "@/lib/texto"
 
 const hoy = () => fechaLocal()
 
@@ -45,7 +49,6 @@ export default function CalendarioPage() {
   const [error,     setError]     = useState<string | null>(null)
 
   const [modalAbierto, setModalAbierto] = useState(false)
-  const [hojaVisible,  setHojaVisible]  = useState(false)
   const [aEliminar,    setAEliminar]    = useState<Evento | null>(null)
 
   const [titulo,      setTitulo]      = useState("")
@@ -91,18 +94,11 @@ export default function CalendarioPage() {
     return () => { supabase.removeChannel(channel) }
   }, [cargar, refrescarEventos])
 
-  useEffect(() => {
-    if (modalAbierto) {
-      const t = setTimeout(() => setHojaVisible(true), 10)
-      return () => clearTimeout(t)
-    }
-    setHojaVisible(false)
-  }, [modalAbierto])
-
+  const miNombre = primerNombre(perfiles.find(p => p.id === userId)?.nombre, "Tu pareja")
   const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
   const nombreAsignado = useCallback(
-    (id: string | null) => id === null ? "Ambos" : esYo(id) ? "Ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => id === null ? "Ambos" : esYo(id) ? "Tú" : primerNombre(perfiles.find(p => p.id === id)?.nombre),
     [perfiles, esYo]
   )
 
@@ -162,14 +158,14 @@ export default function CalendarioPage() {
       : await supabase.from("eventos").insert(payload)
 
     if (res.error) {
-      setError("No se pudo guardar.")
+      setError("No pudimos guardar los cambios. Inténtalo de nuevo.")
     } else {
       if (esNuevo && otroPerfil) {
         await createNotification(
           otroPerfil.id,
           payload.tipo,
-          payload.tipo === "tarea" ? "Nueva tarea" : "Nuevo evento",
-          `${payload.titulo}${payload.fecha ? " · " + payload.fecha : ""}`,
+          `${miNombre} agregó ${payload.tipo === "tarea" ? "una tarea" : "un evento"}`,
+          `${payload.titulo}${payload.fecha ? " · " + fechaCorta(payload.fecha) : ""}`,
           { titulo: payload.titulo, fecha: payload.fecha, tipo: payload.tipo }
         )
       }
@@ -202,8 +198,8 @@ export default function CalendarioPage() {
         await createNotification(
           otroPerfil.id,
           "tarea_completada",
-          "Tarea completada",
-          `✅ ${e.titulo}`,
+          `${miNombre} completó una tarea`,
+          e.titulo,
           { titulo: e.titulo }
         )
       }
@@ -252,89 +248,92 @@ export default function CalendarioPage() {
   }, {})
 
   const renderItem = (e: Evento, destacarAtrasado = false) => (
-    <div
+    <li
       key={e.id}
-      className={`rounded-xl p-4 flex items-center justify-between gap-2 group ${
-        destacarAtrasado ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"
-      }`}
+      className={`card flex items-center justify-between gap-1 p-3 pl-3.5 ${
+        destacarAtrasado ? "tone-danger" : ""
+      } ${e.completado ? "opacity-70" : ""}`}
     >
-      <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         {e.tipo === "tarea" ? (
-          <button onClick={() => marcarCompletado(e)} className="shrink-0">
-            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition ${
-              e.completado ? "bg-green-500 border-green-500" : "border-white/15 hover:border-white/30"
+          // Área táctil de 44px alrededor de un círculo visual de 24px
+          <button
+            onClick={() => marcarCompletado(e)}
+            role="checkbox"
+            aria-checked={!!e.completado}
+            aria-label={`${e.completado ? "Reabrir" : "Completar"}: ${e.titulo}`}
+            className="-ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center"
+          >
+            <span className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${
+              e.completado
+                ? "border-[var(--success)] bg-[var(--success)]"
+                : "border-[var(--border-strong)] hover:border-[var(--text-muted)]"
             }`}>
-              {e.completado && <Check size={12} className="text-white" />}
-            </div>
+              {e.completado && <Check size={14} strokeWidth={3} className="text-[#06210f]" />}
+            </span>
           </button>
         ) : (
-          <div className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[e.color] ?? "bg-slate-500"}`} />
+          <span
+            className={`mx-1.5 h-3 w-3 shrink-0 rounded-full ${COLOR_DOT[e.color] ?? "bg-slate-500"}`}
+            aria-hidden="true"
+          />
         )}
         <div className="min-w-0">
-          <p className={`font-medium text-sm truncate ${e.completado ? "line-through text-muted" : ""}`}>
+          <p className={`line-clamp-2 font-semibold leading-snug ${e.completado ? "text-muted line-through" : ""}`}>
             {e.titulo}
           </p>
           {e.descripcion && (
-            <p className="text-xs text-muted mt-1 line-clamp-2">{e.descripcion}</p>
+            <p className="mt-0.5 line-clamp-2 text-sm text-secondary">{e.descripcion}</p>
           )}
-          <p className="text-xs text-muted flex items-center gap-2 mt-1">
-            {e.hora && (<><span>🕒</span><span>{e.hora.slice(0, 5)}</span></>)}
-            <span>👤</span>
-            <span>{nombreAsignado(e.asignado_a)}</span>
+          <p className="mt-1 flex items-center gap-3 text-sm text-muted">
+            {e.hora && (
+              <span className="num flex items-center gap-1">
+                <Clock3 size={13} aria-hidden="true" />{e.hora.slice(0, 5)}
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <User size={13} aria-hidden="true" />{nombreAsignado(e.asignado_a)}
+            </span>
           </p>
         </div>
       </div>
-      <div className="flex gap-1 shrink-0">
-        <button
-          onClick={() => editarEvento(e)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition"
-        >
-          <Pencil size={16} />
+      <div className="flex shrink-0">
+        <button onClick={() => editarEvento(e)} className="icon-btn is-accent" aria-label={`Editar ${e.titulo}`}>
+          <Pencil size={18} />
         </button>
-        <button
-          onClick={() => setAEliminar(e)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition"
-        >
-          <Trash2 size={16} />
+        <button onClick={() => setAEliminar(e)} className="icon-btn is-danger" aria-label={`Eliminar ${e.titulo}`}>
+          <Trash2 size={18} />
         </button>
       </div>
-    </div>
+    </li>
   )
 
   return (
-    <main className="min-h-screen p-4 pb-28">
-      <div className="max-w-md mx-auto">
+    <main className="page-shell">
+      <div className="page">
 
-        <h1 className="text-2xl font-bold mb-1">Agenda Familiar</h1>
-        <p className="text-sm text-muted mb-4">Lo que necesita atención en casa</p>
+        <PageHeader title="Agenda" subtitle="Lo que necesita atención en casa" />
 
-        <div className="grid grid-cols-3 gap-2 mb-6">
-          <div className={`rounded-xl p-3 ${atrasados.length > 0 ? "bg-red-500/10 border border-red-500/30" : "surface border-subtle"}`}>
-            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><AlertTriangle size={11} /> Atrasado</p>
-            <p className={`font-bold text-lg ${atrasados.length > 0 ? "text-red-400" : ""}`}>{atrasados.length}</p>
+        <div className="mb-6 grid grid-cols-3 gap-2.5">
+          <div className={`card p-3.5 ${atrasados.length > 0 ? "tone-danger" : ""}`}>
+            <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted"><AlertTriangle size={13} /> Atrasado</p>
+            <p className={`num font-display text-2xl font-semibold ${atrasados.length > 0 ? "text-danger" : ""}`}>{atrasados.length}</p>
           </div>
-          <div className="surface border-subtle rounded-xl p-3">
-            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><Clock3 size={11} /> Hoy</p>
-            <p className="font-bold text-lg">{hoyCount}</p>
+          <div className="card p-3.5">
+            <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted"><Clock3 size={13} /> Hoy</p>
+            <p className="num font-display text-2xl font-semibold">{hoyCount}</p>
           </div>
-          <div className="surface border-subtle rounded-xl p-3">
-            <p className="text-[11px] text-muted flex items-center gap-1 mb-1"><Calendar size={11} /> 7 días</p>
-            <p className="font-bold text-lg">{semanaCount}</p>
+          <div className="card p-3.5">
+            <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted"><Calendar size={13} /> 7 días</p>
+            <p className="num font-display text-2xl font-semibold">{semanaCount}</p>
           </div>
         </div>
 
         {/* Filtro evento / tarea — solo visible cuando hay algo que filtrar */}
         {!loading && eventos.length > 0 && (
-          <div className="flex gap-2 mb-4">
+          <div className="mb-5 grid grid-cols-3 gap-2" role="group" aria-label="Filtrar por tipo">
             {(["todos", "evento", "tarea"] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFiltroTipo(f)}
-                className={"flex-1 p-2 rounded-lg text-xs font-medium transition " + (
-                  filtroTipo === f ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                )}
-                style={filtroTipo === f ? { background: "var(--accent)" } : undefined}
-              >
+              <button key={f} onClick={() => setFiltroTipo(f)} aria-pressed={filtroTipo === f} className="chip">
                 {f === "todos" ? "Todo" : f === "evento" ? "Eventos" : "Tareas"}
               </button>
             ))}
@@ -342,201 +341,167 @@ export default function CalendarioPage() {
         )}
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="surface border-subtle rounded-xl h-16 animate-pulse" />)}
+          <div className="space-y-3" aria-hidden="true">
+            {[1, 2, 3].map(i => <div key={i} className="skeleton h-[76px]" />)}
           </div>
         ) : (
           <>
             {atrasados.length > 0 && (
-              <div className="mb-5">
-                <p className="text-xs text-red-400 font-medium uppercase tracking-wide mb-2 pl-1 flex items-center gap-1">
-                  <AlertTriangle size={12} /> Se quedó pendiente
-                </p>
-                <div className="space-y-2">{atrasados.map(e => renderItem(e, true))}</div>
-              </div>
+              <section className="mb-6">
+                <h2 className="mb-2 flex items-center gap-1.5 pl-1 text-xs font-bold uppercase tracking-wider text-danger">
+                  <AlertTriangle size={14} /> Quedó pendiente
+                </h2>
+                <ul className="space-y-2">{atrasados.map(e => renderItem(e, true))}</ul>
+              </section>
             )}
 
             {Object.keys(proximosPorFecha).length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-4xl mb-3">🌿</div>
-                <p className="text-base font-medium text-secondary">
-                  {filtroTipo === "todos" ? "La casa está en calma" :
-                   filtroTipo === "evento" ? "No hay eventos próximos" :
-                   "No hay tareas pendientes"}
-                </p>
-                <p className="text-sm text-muted mt-1">
-                  {filtroTipo === "todos"
-                    ? "No hay tareas pendientes ni eventos próximos"
-                    : "Prueba cambiando el filtro"}
-                </p>
-              </div>
+              <EmptyState
+                icon={Leaf}
+                title={
+                  filtroTipo === "todos" ? "La casa está en calma" :
+                  filtroTipo === "evento" ? "No hay eventos próximos" :
+                  "No hay tareas pendientes"
+                }
+                description={
+                  filtroTipo === "todos"
+                    ? "Cuando agreguen un evento o una tarea, aparecerá aquí."
+                    : "Prueba con otro filtro."
+                }
+              />
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {Object.entries(proximosPorFecha).map(([f, evts]) => (
-                  <div key={f}>
-                    <p className="text-xs text-muted font-medium uppercase tracking-wide mb-2 pl-1">
-                      {formatFecha(f)}
-                    </p>
-                    <div className="space-y-2">{evts.map(e => renderItem(e))}</div>
-                  </div>
+                  <section key={f}>
+                    <h2 className="section-label mb-2 pl-1">{formatFecha(f)}</h2>
+                    <ul className="space-y-2">{evts.map(e => renderItem(e))}</ul>
+                  </section>
                 ))}
               </div>
             )}
 
             {completadas.length > 0 && (
-              <div className="mt-6">
-                <p className="text-xs text-muted uppercase tracking-wide mb-2">
+              <section className="mt-7">
+                <h2 className="section-label mb-2 pl-1">
                   Completadas (últimos {DIAS_VISIBLES_COMPLETADAS} días)
-                </p>
-                <div className="space-y-2">{completadas.map(e => renderItem(e))}</div>
-              </div>
+                </h2>
+                <ul className="space-y-2">{completadas.map(e => renderItem(e))}</ul>
+              </section>
             )}
           </>
         )}
 
         {!modalAbierto && (
-          <button
-            onClick={abrirNuevo}
-            className="fixed bottom-[88px] right-4 w-14 h-14 rounded-full accent-gradient shadow-lg flex items-center justify-center z-40 text-white"
-          >
+          <button onClick={abrirNuevo} className="fab" aria-label="Agregar evento o tarea">
             <Plus size={26} />
           </button>
         )}
 
-        {modalAbierto && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
-            <div
-              className={`relative w-full max-w-md surface rounded-t-3xl p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 transition-transform duration-300 ease-out ${
-                hojaVisible ? "translate-y-0" : "translate-y-full"
-              }`}
-            >
-              <div className="flex items-center justify-between sticky top-0 surface pb-1">
-                <p className="text-sm font-semibold">{editandoId ? "Corrigiendo plan" : "Nuevo"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary transition">
-                  <X size={18} />
-                </button>
-              </div>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? (tipo === "tarea" ? "Editar tarea" : "Editar evento") : (tipo === "tarea" ? "Nueva tarea" : "Nuevo evento")}>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo">
+            <button onClick={() => setTipo("evento")} aria-pressed={tipo === "evento"} className="chip !rounded-2xl">
+              <Calendar size={16} /> Evento
+            </button>
+            <button onClick={() => setTipo("tarea")} aria-pressed={tipo === "tarea"} className="chip !rounded-2xl">
+              <ListChecks size={16} /> Tarea
+            </button>
+          </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setTipo("evento")}
-                  className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    tipo === "evento" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={tipo === "evento" ? { background: "var(--accent)" } : undefined}
-                >
-                  <Calendar size={13} /> Evento
-                </button>
-                <button
-                  onClick={() => setTipo("tarea")}
-                  className={`p-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                    tipo === "tarea" ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={tipo === "tarea" ? { background: "var(--accent)" } : undefined}
-                >
-                  <ListChecks size={13} /> Tarea
-                </button>
-              </div>
+          <div>
+            <label htmlFor="e-titulo" className="field-label">Título</label>
+            <input
+              id="e-titulo"
+              value={titulo}
+              onChange={e => setTitulo(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && guardar()}
+              placeholder={tipo === "tarea" ? "¿Qué hay que hacer?" : "¿Qué tienen planeado?"}
+              autoFocus
+              className="field"
+            />
+          </div>
 
-              <input
-                value={titulo}
-                onChange={e => setTitulo(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && guardar()}
-                placeholder={tipo === "tarea" ? "¿Qué hay que hacer?" : "¿Qué tienen planeado?"}
-                autoFocus
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
+          <div>
+            <label htmlFor="e-desc" className="field-label">Detalles (opcional)</label>
+            <input
+              id="e-desc"
+              value={descripcion}
+              onChange={e => setDescripcion(e.target.value)}
+              placeholder="Ej. qué materiales llevar"
+              className="field"
+            />
+          </div>
 
-              <input
-                value={descripcion}
-                onChange={e => setDescripcion(e.target.value)}
-                placeholder="Detalles (opcional) — ej. qué materiales llevar"
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
-
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  value={fecha}
-                  onChange={e => setFecha(e.target.value)}
-                  type="date"
-                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                />
-                <input
-                  value={hora}
-                  onChange={e => setHora(e.target.value)}
-                  type="time"
-                  className="p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1 min-w-0"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                />
-              </div>
-
-              <p className="text-xs text-muted pt-1">¿A quién le compete?</p>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setAsignadoA(userId)}
-                  className={`p-2.5 rounded-lg text-[11px] font-medium transition truncate ${
-                    asignadoA === userId ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={asignadoA === userId ? { background: "var(--accent)" } : undefined}
-                >
-                  A mí
-                </button>
-                <button
-                  onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
-                  className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
-                    asignadoA === otroPerfil?.id && otroPerfil ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={asignadoA === otroPerfil?.id && otroPerfil ? { background: "var(--accent)", opacity: 0.75 } : undefined}
-                >
-                  {otroPerfil ? otroPerfil.nombre : "Pareja"}
-                </button>
-                <button
-                  onClick={() => setAsignadoA(null)}
-                  className={`p-2.5 rounded-lg text-[11px] font-medium truncate transition ${
-                    asignadoA === null ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                  }`}
-                  style={asignadoA === null ? { background: "var(--accent)", opacity: 0.55 } : undefined}
-                >
-                  Ambos
-                </button>
-              </div>
-
-              {tipo === "evento" && (
-                <div className="flex gap-3 pt-1 flex-wrap">
-                  {COLOR_OPTIONS.map(c => (
-                    <button
-                      key={c.value}
-                      onClick={() => setColor(c.value)}
-                      aria-label={c.label}
-                      className={`w-9 h-9 rounded-full ${c.cls} transition-all shrink-0 ${
-                        color === c.value ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "opacity-50"
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {error && <p className="text-red-400 text-xs">{error}</p>}
-
-              <button
-                onClick={guardar}
-                disabled={guardando || !titulo.trim() || !fecha}
-                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
-              >
-                <CalendarPlus size={16} />
-                {guardando ? "Guardando..." : editandoId ? "Actualizar" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
-              </button>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label htmlFor="e-fecha" className="field-label">Fecha</label>
+              <input id="e-fecha" value={fecha} onChange={e => setFecha(e.target.value)} type="date" className="field min-w-0" />
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="e-hora" className="field-label">Hora</label>
+              <input id="e-hora" value={hora} onChange={e => setHora(e.target.value)} type="time" className="field min-w-0" />
             </div>
           </div>
-        )}
+
+          <fieldset>
+            <legend className="field-label">¿Quién se encarga?</legend>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => setAsignadoA(userId)} aria-pressed={asignadoA === userId} className="chip !rounded-2xl truncate">
+                A mí
+              </button>
+              <button
+                onClick={() => setAsignadoA(otroPerfil?.id ?? null)}
+                aria-pressed={!!otroPerfil && asignadoA === otroPerfil.id}
+                className="chip !rounded-2xl truncate"
+              >
+                {otroPerfil ? otroPerfil.nombre : "Pareja"}
+              </button>
+              <button onClick={() => setAsignadoA(null)} aria-pressed={asignadoA === null} className="chip !rounded-2xl truncate">
+                Ambos
+              </button>
+            </div>
+          </fieldset>
+
+          {tipo === "evento" && (
+            <fieldset>
+              <legend className="field-label">Color</legend>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_OPTIONS.map(c => (
+                  <button
+                    key={c.value}
+                    onClick={() => setColor(c.value)}
+                    aria-label={c.label}
+                    aria-pressed={color === c.value}
+                    className="flex h-11 w-11 items-center justify-center rounded-full"
+                  >
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-full ${c.cls} transition-all ${
+                      color === c.value
+                        ? "ring-2 ring-white ring-offset-2 ring-offset-[var(--surface)]"
+                        : "opacity-80"
+                    }`}>
+                      {color === c.value && <Check size={16} strokeWidth={3} className="text-white drop-shadow" aria-hidden="true" />}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
+          <button
+            onClick={guardar}
+            disabled={guardando || !titulo.trim() || !fecha}
+            className="btn btn-primary w-full"
+          >
+            <CalendarPlus size={18} />
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
+          </button>
+        </Sheet>
 
         <ConfirmDialog
           open={!!aEliminar}
-          message="¿Eliminar este elemento? Esta acción no se puede deshacer."
+          title={aEliminar?.tipo === "tarea" ? "¿Eliminar tarea?" : "¿Eliminar evento?"}
+          message={aEliminar ? `Se eliminará "${aEliminar.titulo}". No se puede deshacer.` : ""}
           onCancel={() => setAEliminar(null)}
           onConfirm={() => aEliminar && eliminarConfirmado(aEliminar)}
         />

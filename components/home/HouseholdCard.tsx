@@ -1,22 +1,6 @@
-const fmt=(n:number)=>
+import { Scale } from "lucide-react"
 
-
-new Intl.NumberFormat(
-
-"es-CO",
-
-{
-
-style:"currency",
-
-currency:"COP",
-
-maximumFractionDigits:0
-
-}
-
-).format(n)
-
+import { moneda as fmt } from "@/lib/texto"
 
 type Props = {
   loading: boolean
@@ -24,66 +8,43 @@ type Props = {
   balance: string
 }
 
-export default function HouseholdCard({ loading, totalMes, balance }: Props){
+/**
+ * Tarjeta héroe del home. Todo el texto usa --on-accent (blanco u oscuro
+ * según el acento elegido), nunca blanco fijo: sobre ámbar o esmeralda el
+ * blanco quedaba ilegible.
+ */
+export default function HouseholdCard({ loading, totalMes, balance }: Props) {
+  return (
+    <section
+      aria-label="Gasto compartido del mes"
+      className="accent-gradient accent-glow relative overflow-hidden rounded-[28px] p-5"
+    >
+      {/* Brillo decorativo, no lleva información */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-10 -top-14 h-44 w-44 rounded-full bg-white opacity-20 blur-2xl"
+      />
 
+      <p className="relative text-sm font-bold uppercase tracking-wider opacity-80">
+        Gasto compartido del mes
+      </p>
 
+      {loading ? (
+        <div className="mt-3 h-11 w-48 animate-pulse rounded-xl bg-black/15" />
+      ) : (
+        <p className="num font-display relative mt-1 text-[2.5rem] font-semibold leading-tight">
+          {fmt(totalMes)}
+        </p>
+      )}
 
-return(
-
-
-<div className="accent-gradient rounded-3xl p-5">
-
-
-<p className="text-xs uppercase tracking-widest text-white/60">
-
-
-Gasto compartido
-
-
-</p>
-
-
-
-{loading ? (
-  <div className="h-10 w-40 bg-white/15 rounded-lg mt-2 animate-pulse" />
-) : (
-  <p className="text-4xl font-bold mt-2">
-    {fmt(totalMes)}
-  </p>
-)}
-
-
-
-<div className="mt-4">
-
-
-<p className="text-sm text-white/70">
-
-
-¿Cómo vamos?
-
-
-</p>
-
-
-
-{loading ? (
-  <div className="h-6 w-32 bg-white/15 rounded-md mt-1 animate-pulse" />
-) : (
-  <p className="text-lg font-semibold">
-    {balance}
-  </p>
-)}
-
-
-</div>
-
-
-
-</div>
-
-
-
-)
-
+      <div className="relative mt-4 inline-flex min-h-10 items-center gap-2 rounded-full bg-black/15 px-3.5 py-2">
+        <Scale size={16} aria-hidden="true" />
+        {loading ? (
+          <span className="block h-4 w-32 animate-pulse rounded bg-black/15" />
+        ) : (
+          <span className="text-sm font-bold">{balance}</span>
+        )}
+      </div>
+    </section>
+  )
 }

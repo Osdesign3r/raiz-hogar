@@ -3,14 +3,16 @@
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Miembro } from "@/lib/types"
-import { UserPlus, Trash2, Pencil, X, Plus, ChevronLeft } from "lucide-react"
-import Link from "next/link"
+import { UserPlus, Trash2, Pencil, Plus, UserRound, Baby, PawPrint, UsersRound, type LucideIcon } from "lucide-react"
 import ConfirmDialog from "@/components/ConfirmDialog"
+import Sheet from "@/components/Sheet"
+import PageHeader from "@/components/PageHeader"
+import EmptyState from "@/components/EmptyState"
 
 const ROL_OPTIONS = ["Padre", "Madre", "Hijo", "Hija", "Mascota", "Otro"]
 
-const ROL_EMOJI: Record<string, string> = {
-  Padre: "👨", Madre: "👩", Hijo: "👦", Hija: "👧", Mascota: "🐾", Otro: "👤",
+const ROL_ICON: Record<string, LucideIcon> = {
+  Padre: UserRound, Madre: UserRound, Hijo: Baby, Hija: Baby, Mascota: PawPrint, Otro: UserRound,
 }
 
 export default function FamiliaPage() {
@@ -20,7 +22,6 @@ export default function FamiliaPage() {
   const [error,     setError]     = useState<string | null>(null)
 
   const [modalAbierto, setModalAbierto] = useState(false)
-  const [hojaVisible,  setHojaVisible]  = useState(false)
   const [aEliminar,    setAEliminar]    = useState<Miembro | null>(null)
 
   const [editandoId, setEditandoId] = useState<string | null>(null)
@@ -40,14 +41,6 @@ export default function FamiliaPage() {
   }, [])
 
   useEffect(() => { cargar() }, [cargar])
-
-  useEffect(() => {
-    if (modalAbierto) {
-      const t = setTimeout(() => setHojaVisible(true), 10)
-      return () => clearTimeout(t)
-    }
-    setHojaVisible(false)
-  }, [modalAbierto])
 
   const limpiarFormulario = useCallback(() => {
     setEditandoId(null)
@@ -93,7 +86,7 @@ export default function FamiliaPage() {
       : await supabase.from("miembros").insert(payload)
 
     if (res.error) {
-      setError("No se pudo guardar el miembro.")
+      setError("No pudimos guardar a este miembro. Inténtalo de nuevo.")
     } else {
       setModalAbierto(false)
       limpiarFormulario()
@@ -108,150 +101,128 @@ export default function FamiliaPage() {
       setMiembros(prev => prev.filter(x => x.id !== m.id))
       if (editandoId === m.id) cerrarModal()
     } else {
-      setError("No se pudo eliminar el miembro.")
+      setError("No pudimos eliminar a este miembro. Inténtalo de nuevo.")
     }
     setAEliminar(null)
   }
 
   return (
-    <main className="min-h-screen p-4 pb-28">
-      <div className="max-w-md mx-auto">
+    <main className="page-shell">
+      <div className="page">
 
-        <div className="flex items-center gap-2 mb-5">
-          <Link href="/configuracion" className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-secondary hover:bg-[var(--surface-2)] transition shrink-0">
-            <ChevronLeft size={18} />
-          </Link>
-          <h1 className="text-2xl font-bold">Miembros del hogar</h1>
-        </div>
+        <PageHeader title="Miembros del hogar" backHref="/configuracion" />
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-4">{error}</div>
+        {error && !modalAbierto && (
+          <div role="alert" className="card tone-danger mb-4 p-3.5 text-sm text-danger">{error}</div>
         )}
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2].map(i => <div key={i} className="surface border-subtle rounded-xl h-16 animate-pulse" />)}
+          <div className="space-y-3" aria-hidden="true">
+            {[1, 2].map(i => <div key={i} className="skeleton h-[72px]" />)}
           </div>
         ) : miembros.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-4xl mb-3">👨‍👩‍👧</div>
-            <p className="text-base font-medium text-secondary">Aún no has agregado a nadie</p>
-            <p className="text-sm text-muted mt-1">Hijos, mascotas — quien sea que viva en la casa</p>
-          </div>
+          <EmptyState
+            icon={UsersRound}
+            title="Aún no hay nadie más en el hogar"
+            description="Agrega a tus hijos, mascotas o a quien viva en casa para asignarles documentos."
+          />
         ) : (
-          <div className="space-y-2">
-            {miembros.map(m => (
-              <div key={m.id} className="surface border-subtle rounded-xl p-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-[var(--surface-2)] flex items-center justify-center shrink-0 text-lg">
-                    {ROL_EMOJI[m.parentesco] ?? "👤"}
+          <ul className="space-y-2">
+            {miembros.map(m => {
+              const Icon = ROL_ICON[m.parentesco] ?? UserRound
+              return (
+                <li key={m.id} className="card flex items-center justify-between gap-3 p-3.5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--surface-2)]">
+                      <Icon size={22} style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{m.nombre}</p>
+                      <p className="text-sm text-muted">{m.parentesco}</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{m.nombre}</p>
-                    <p className="text-xs text-muted">{m.parentesco}</p>
+                  <div className="flex shrink-0">
+                    <button onClick={() => editarMiembro(m)} className="icon-btn is-accent" aria-label={`Editar a ${m.nombre}`}>
+                      <Pencil size={18} />
+                    </button>
+                    <button onClick={() => setAEliminar(m)} className="icon-btn is-danger" aria-label={`Eliminar a ${m.nombre}`}>
+                      <Trash2 size={18} />
+                    </button>
                   </div>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  <button
-                    onClick={() => editarMiembro(m)}
-                    className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-[var(--accent)] hover:bg-[var(--surface-2)] active:opacity-70 transition"
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button
-                    onClick={() => setAEliminar(m)}
-                    className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-[var(--surface-2)] active:opacity-70 transition"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
 
         {!modalAbierto && (
-          <button
-            onClick={abrirNuevo}
-            className="fixed bottom-[88px] right-4 w-14 h-14 rounded-full accent-gradient shadow-lg flex items-center justify-center z-40 text-white"
-          >
+          <button onClick={abrirNuevo} className="fab" aria-label="Agregar miembro">
             <Plus size={26} />
           </button>
         )}
 
-        {modalAbierto && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} />
-            <div
-              className={`relative w-full max-w-md surface rounded-t-3xl p-4 pb-20 max-h-[85dvh] overflow-y-auto space-y-3 transition-transform duration-300 ease-out ${
-                hojaVisible ? "translate-y-0" : "translate-y-full"
-              }`}
-            >
-              <div className="flex items-center justify-between sticky top-0 surface pb-1">
-                <p className="text-sm font-semibold">{editandoId ? "Editando miembro" : "Agregar miembro"}</p>
-                <button onClick={cerrarModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-secondary transition">
-                  <X size={18} />
-                </button>
-              </div>
-
-              <input
-                value={nombre}
-                onChange={e => setNombre(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && guardar()}
-                placeholder="Nombre"
-                autoFocus
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
-
-              <div className="grid grid-cols-3 gap-2">
-                {ROL_OPTIONS.map(r => (
-                  <button
-                    key={r}
-                    onClick={() => setRol(r)}
-                    className={`p-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition ${
-                      rol === r ? "text-white" : "bg-[var(--surface-2)] text-muted hover:opacity-80"
-                    }`}
-                    style={rol === r ? { background: "var(--accent)" } : undefined}
-                  >
-                    <span>{ROL_EMOJI[r]}</span> {r}
-                  </button>
-                ))}
-              </div>
-
-              <div>
-                <p className="text-xs text-muted mb-1">Fecha de nacimiento (opcional)</p>
-                <input
-                  value={fechaNacimiento}
-                  onChange={e => setFechaNacimiento(e.target.value)}
-                  type="date"
-                  className="w-full p-3 rounded-lg bg-[var(--surface-2)] text-sm text-secondary outline-none focus:ring-1"
-                  style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-                />
-              </div>
-
-              <textarea
-                value={notas}
-                onChange={e => setNotas(e.target.value)}
-                placeholder="Notas (opcional) — alergias, médico, colegio..."
-                rows={2}
-                className="w-full p-3 rounded-lg bg-[var(--surface-2)] placeholder:text-muted text-sm outline-none focus:ring-1 resize-none"
-                style={{ "--tw-ring-color": "var(--accent)" } as React.CSSProperties}
-              />
-
-              {error && <p className="text-red-400 text-xs">{error}</p>}
-
-              <button
-                onClick={guardar}
-                disabled={guardando || !nombre.trim()}
-                className="w-full accent-gradient disabled:opacity-40 disabled:cursor-not-allowed p-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition text-white"
-              >
-                <UserPlus size={16} />
-                {guardando ? "Guardando..." : editandoId ? "Actualizar" : "Agregar"}
-              </button>
-            </div>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editar miembro" : "Agregar miembro"}>
+          <div>
+            <label htmlFor="m-nombre" className="field-label">Nombre</label>
+            <input
+              id="m-nombre"
+              value={nombre}
+              onChange={e => setNombre(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && guardar()}
+              placeholder="Nombre"
+              autoFocus
+              className="field"
+            />
           </div>
-        )}
+
+          <fieldset>
+            <legend className="field-label">Rol</legend>
+            <div className="grid grid-cols-3 gap-2">
+              {ROL_OPTIONS.map(r => {
+                const Icon = ROL_ICON[r]
+                return (
+                  <button key={r} onClick={() => setRol(r)} aria-pressed={rol === r} className="chip !rounded-2xl">
+                    <Icon size={15} aria-hidden="true" /> {r}
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
+
+          <div>
+            <label htmlFor="m-nac" className="field-label">Fecha de nacimiento (opcional)</label>
+            <input
+              id="m-nac"
+              value={fechaNacimiento}
+              onChange={e => setFechaNacimiento(e.target.value)}
+              type="date"
+              className="field"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="m-notas" className="field-label">Notas (opcional)</label>
+            <textarea
+              id="m-notas"
+              value={notas}
+              onChange={e => setNotas(e.target.value)}
+              placeholder="Alergias, médico, colegio..."
+              rows={2}
+              className="field"
+            />
+          </div>
+
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
+          <button
+            onClick={guardar}
+            disabled={guardando || !nombre.trim()}
+            className="btn btn-primary w-full"
+          >
+            <UserPlus size={18} />
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Agregar miembro"}
+          </button>
+        </Sheet>
 
         <ConfirmDialog
           open={!!aEliminar}

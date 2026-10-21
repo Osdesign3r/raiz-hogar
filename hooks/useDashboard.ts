@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { calcularBalance } from "@/lib/finanzas"
 import { fechaLocal } from "@/lib/fecha"
+import { moneda, fechaRelativa } from "@/lib/texto"
 
 export interface TimelineItem {
   id: string
@@ -14,6 +15,7 @@ export interface TimelineItem {
 
 export interface ActivityItem {
   id: string
+  kind: "gasto" | "documento"
   message: string
   time: string
   ts: number
@@ -33,8 +35,7 @@ const MAX_ATRASADOS_EN_TIMELINE = 2
 const MAX_ACTIVITY = 3
 
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n)
+const fmt = moneda
 
 export function useDashboard(): DashboardData {
   const [loading, setLoading] = useState(true)
@@ -87,10 +88,12 @@ export function useDashboard(): DashboardData {
     setNombre(perfilRes.data?.nombre ?? "")
 
     const nombrePorId = new Map(perfiles.map(p => [p.id, p.nombre]))
-    const nombreDe = (id: string | null) => {
-      if (!id) return "Alguien"
-      if (id === session.user.id) return "Tú"
-      return nombrePorId.get(id) ?? "Tu pareja"
+    // Frase con el verbo ya conjugado: "Pagaste Mercado" / "Mateo pagó Mercado".
+    // Antes era "Tú: Mercado" / "Mateo: Mercado", que no dice qué pasó.
+    const quien = (id: string | null, tuVerbo: string, suVerbo: string) => {
+      if (id === session.user.id) return `${tuVerbo}`
+      const nombre = id ? (nombrePorId.get(id) ?? "Tu pareja").split(" ")[0] : "Alguien"
+      return `${nombre} ${suVerbo}`
     }
 
     const total = gastos.reduce((acc, g) => acc + Number(g.valor), 0)
@@ -108,14 +111,14 @@ export function useDashboard(): DashboardData {
     if (b.acreedor && b.deudor) {
       const monto = fmt(b.diferencia)
       if (b.acreedor.id === session.user.id) {
-        setBalance(`Vas ${monto} adelante`)
+        setBalance(`Pusiste ${monto} de más`)
       } else if (b.deudor.id === session.user.id) {
-        setBalance(`Te faltan ${monto} para emparejar`)
+        setBalance(`Te faltan ${monto} para quedar a mano`)
       } else {
-        setBalance(`Faltan ${monto} para emparejar`)
+        setBalance(`Faltan ${monto} para quedar a mano`)
       }
     } else {
-      setBalance("Van parejos 🤝")
+      setBalance("Están a mano")
     }
 
     const conEstado = eventos.map(e => {
@@ -137,15 +140,17 @@ export function useDashboard(): DashboardData {
     const actividades: ActivityItem[] = [
       ...gastos.map(g => ({
         id: `g-${g.id}`,
-        message: `💸 ${nombreDe(g.pagado_por)}: ${g.concepto}`,
+        kind: "gasto" as const,
+        message: `${quien(g.pagado_por, "Pagaste", "pagó")} ${g.concepto}`,
         ts: new Date(g.created_at).getTime(),
-        time: new Date(g.created_at).toLocaleDateString("es-CO"),
+        time: fechaRelativa(new Date(g.created_at)),
       })),
       ...documentos.map(d => ({
         id: `d-${d.id}`,
-        message: `📄 ${nombreDe(d.created_by)}: ${d.nombre}`,
+        kind: "documento" as const,
+        message: `${quien(d.created_by, "Subiste", "subió")} ${d.nombre}`,
         ts: new Date(d.created_at).getTime(),
-        time: new Date(d.created_at).toLocaleDateString("es-CO"),
+        time: fechaRelativa(new Date(d.created_at)),
       })),
     ].sort((a, b) => b.ts - a.ts).slice(0, MAX_ACTIVITY)
 
