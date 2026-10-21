@@ -14,6 +14,7 @@ import PageHeader from "@/components/PageHeader"
 import EmptyState from "@/components/EmptyState"
 import { fechaLocal } from "@/lib/fecha"
 import { parsearSms } from "@/lib/parsearSms"
+import { primerNombre, moneda } from "@/lib/texto"
 
 const hoy = () => fechaLocal()
 
@@ -36,7 +37,11 @@ const nombreMes = (mes: string) => {
 const fmtFechaCorta = (f: string) =>
   new Date(f + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })
 
-const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString("es-CO")}`
+// "50/50" no dice nada a quien lo lee de pasada; las dos puntas sí merecen palabras.
+const textoReparto = (pctPagador: number) =>
+  pctPagador === 50 ? "a medias" : pctPagador === 100 ? "sin deuda" : `${pctPagador}/${100 - pctPagador}`
+
+const fmt = moneda
 
 type ResumenPersona = Perfil & { pagado: number; responsabilidad: number; saldo: number }
 type CategoriaComparada = { id: string; nombre: string; emoji: string; actual: number; anterior: number }
@@ -126,7 +131,7 @@ function FinanzasContent() {
     ])
 
     if (gastosErr) {
-      setError("Error cargando gastos. Intenta de nuevo.")
+      setError("No pudimos cargar los gastos. Inténtalo de nuevo.")
     } else {
       setUserId(user?.id ?? null)
       setPerfiles(perfilesData ?? [])
@@ -148,16 +153,19 @@ function FinanzasContent() {
 
   const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
-  const nombreSujeto = useCallback(
-    (id: string | null) => esYo(id) ? "Tú" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
-    [perfiles, esYo]
+  const nombreDe = useCallback(
+    (id: string | null) => primerNombre(perfiles.find(p => p.id === id)?.nombre),
+    [perfiles]
   )
-  // Siempre se usa después de preposición ("a ti", "responsabilidad de ti") —
-  // por eso "ti" y no "tú". "a tú" es un error de gramática, no una variante.
-  const nombreObjeto = useCallback(
-    (id: string | null) => esYo(id) ? "ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
-    [perfiles, esYo]
-  )
+
+  // Frase de deuda conjugada según quién la lea. Antes se armaba con
+  // "sujeto + debe + a + objeto" y salían cosas como "Tú debe" o "le debe a ti".
+  const fraseDeuda = useCallback((deudorId: string | null, acreedorId: string | null, monto: number) => {
+    const m = fmt(monto)
+    if (esYo(deudorId))   return `Le debes ${m} a ${nombreDe(acreedorId)}`
+    if (esYo(acreedorId)) return `${nombreDe(deudorId)} te debe ${m}`
+    return `${nombreDe(deudorId)} le debe ${m} a ${nombreDe(acreedorId)}`
+  }, [esYo, nombreDe])
 
   // ── Edición / modal ──────────────────────────────────────────────────────
 
@@ -266,7 +274,7 @@ function FinanzasContent() {
           .insert(payload)
 
     if (res.error) {
-      setError("No se pudo guardar el gasto.")
+      setError("No pudimos guardar el gasto. Inténtalo de nuevo.")
     } else {
       setModalAbierto(false)
       cancelarEdicion()
@@ -355,6 +363,19 @@ function FinanzasContent() {
 
   // ── Cálculos: análisis ───────────────────────────────────────────────────
 
+  // Un mes a medias contra un mes completo siempre sale "X% menos" y es
+  // engañoso. Si el mes activo es el actual, el mes anterior se corta en el
+  // mismo día, para comparar lo comparable.
+  const esMesActual = mesActivo === hoy().slice(0, 7)
+  const diaCorte    = new Date().getDate()
+  const gastosAnteriorComparable = useMemo(
+    () => esMesActual
+      ? gastosMesAnterior.filter(g => Number(g.fecha.slice(8, 10)) <= diaCorte)
+      : gastosMesAnterior,
+    [gastosMesAnterior, esMesActual, diaCorte]
+  )
+  const nombreMesAnterior = nombreMes(mesAnteriorDe(mesActivo))
+
   const agruparPorCategoria = (lista: Gasto[]) => {
     const mapa = new Map<string, { nombre: string; emoji: string; total: number }>()
     lista.forEach(g => {
@@ -370,7 +391,7 @@ function FinanzasContent() {
 
   const categoriasComparadas = useMemo((): CategoriaComparada[] => {
     const actualMap   = agruparPorCategoria(compartidos)
-    const anteriorMap = agruparPorCategoria(gastosMesAnterior)
+    const anteriorMap = agruparPorCategoria(gastosAnteriorComparable)
     const ids = new Set([...actualMap.keys(), ...anteriorMap.keys()])
     return Array.from(ids)
       .map(id => {
@@ -385,7 +406,7 @@ function FinanzasContent() {
         }
       })
       .sort((x, y) => y.actual - x.actual)
-  }, [compartidos, gastosMesAnterior])
+  }, [compartidos, gastosAnteriorComparable])
 
   // ── Presupuestos ─────────────────────────────────────────────────────────
 
@@ -477,17 +498,16 @@ function FinanzasContent() {
       .slice(0, 3)
   }, [categoriasComparadas])
 
-  const totalMesAnterior = gastosMesAnterior.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
+  const totalMesAnterior = gastosAnteriorComparable.reduce((acc, g) => acc + (Number(g.valor) || 0), 0)
   const deltaTotalPct = totalMesAnterior > 0
     ? Math.round(((totalCompartido - totalMesAnterior) / totalMesAnterior) * 100)
     : null
 
   const diasParaPromedio = useMemo(() => {
-    const esMesActual = mesActivo === hoy().slice(0, 7)
-    if (esMesActual) return new Date().getDate()
+    if (esMesActual) return diaCorte
     const [y, m] = mesActivo.split("-").map(Number)
     return new Date(y, m, 0).getDate()
-  }, [mesActivo])
+  }, [mesActivo, esMesActual, diaCorte])
 
   const promedioDiario = totalCompartido / Math.max(diasParaPromedio, 1)
 
@@ -567,38 +587,40 @@ function FinanzasContent() {
             {/* ── Lo primero que se ve: el balance ──────────────────────── */}
             <section className="card mb-3 space-y-4 p-4" aria-label="Balance del mes">
               <div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="section-label flex items-center gap-1.5">
-                    <Users size={13} aria-hidden="true" /> Compartido · {nombreMes(mesActivo)}
-                  </p>
-                  {deltaTotalPct !== null && (
+                <p className="section-label flex items-center gap-1.5">
+                  <Users size={13} aria-hidden="true" /> Gasto compartido de {nombreMes(mesActivo)}
+                </p>
+                <p className="num font-display mt-1 text-[2.25rem] font-semibold leading-tight">{fmt(totalCompartido)}</p>
+                {deltaTotalPct !== null && (
+                  <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
                     <span
                       className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${pastilla(
                         deltaTotalPct > 0 ? "danger" : deltaTotalPct < 0 ? "success" : "neutral"
                       )}`}
                     >
-                      {deltaTotalPct > 0 ? <TrendingUp size={13} /> : deltaTotalPct < 0 ? <TrendingDown size={13} /> : null}
-                      {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}%`}
-                      <span className="sr-only"> frente al mes anterior</span>
+                      {deltaTotalPct > 0 ? <TrendingUp size={13} aria-hidden="true" /> : deltaTotalPct < 0 ? <TrendingDown size={13} aria-hidden="true" /> : null}
+                      {deltaTotalPct === 0 ? "Igual" : `${Math.abs(deltaTotalPct)}% ${deltaTotalPct > 0 ? "más" : "menos"}`}
                     </span>
-                  )}
-                </div>
-                <p className="num font-display mt-1 text-[2.25rem] font-semibold leading-tight">{fmt(totalCompartido)}</p>
+                    <span>que {nombreMesAnterior}{esMesActual ? " a esta altura del mes" : ""}</span>
+                  </p>
+                )}
               </div>
 
               {resumenPorPersonaMes.length > 0 && (
+                <div>
+                <p className="section-label mb-2">Así va {nombreMes(mesActivo)}</p>
                 <div className="grid grid-cols-2 gap-2.5">
                   {resumenPorPersonaMes.map(p => (
                     <div key={p.id} className="rounded-2xl bg-[var(--surface-2)] p-3">
-                      <p className="mb-2 truncate text-sm font-semibold">{esYo(p.id) ? "Tú" : p.nombre}</p>
+                      <p className="mb-2 truncate text-sm font-semibold">{esYo(p.id) ? "Tú" : primerNombre(p.nombre)}</p>
                       <span
                         className={`num mb-3 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${pastilla(
                           p.saldo > 0.5 ? "success" : p.saldo < -0.5 ? "danger" : "neutral"
                         )}`}
                       >
-                        {p.saldo > 0.5  ? `+ ${fmt(p.saldo)}` :
-                         p.saldo < -0.5 ? `− ${fmt(p.saldo)}` :
-                                          "En paz"}
+                        {p.saldo > 0.5  ? `A favor ${fmt(p.saldo)}` :
+                         p.saldo < -0.5 ? `Debe ${fmt(p.saldo)}` :
+                                          "A mano"}
                       </span>
                       <dl className="space-y-1.5 text-sm">
                         <div>
@@ -613,23 +635,26 @@ function FinanzasContent() {
                     </div>
                   ))}
                 </div>
+                </div>
               )}
 
               {acreedor && deudor ? (
                 <div className="card tone-warning flex items-start gap-3 p-3.5">
                   <Scale size={20} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
                   <div>
-                    <p className="text-[0.9375rem] leading-snug">
-                      {nombreSujeto(deudor.id)} {esYo(deudor.id) ? "le debes" : "le debe"} a{" "}
-                      {nombreObjeto(acreedor.id)}:{" "}
-                      <span className="num font-bold text-warning">{fmt(acreedor.saldo)}</span>
+                    <p className="text-[0.9375rem] font-semibold leading-snug">
+                      {esYo(acreedor.id)
+                        ? `Pusiste ${fmt(acreedor.saldo)} de más`
+                        : `Te faltan ${fmt(acreedor.saldo)} para quedar a mano`}
                     </p>
-                    <p className="mt-0.5 text-sm text-muted">Saldo acumulado — no se resetea cada mes</p>
+                    <p className="mt-0.5 text-sm text-muted">
+                      Es el saldo de todos los meses, no solo de {nombreMes(mesActivo)}.
+                    </p>
                   </div>
                 </div>
               ) : totalCompartido > 0 ? (
                 <p className="flex items-center justify-center gap-1.5 py-1 text-sm text-success">
-                  <CircleCheck size={16} aria-hidden="true" /> Están en paz
+                  <CircleCheck size={16} aria-hidden="true" /> Están a mano, sin deudas entre ustedes
                 </p>
               ) : null}
             </section>
@@ -642,7 +667,7 @@ function FinanzasContent() {
                   <p className="num font-display text-lg font-semibold">{fmt(promedioDiario)}</p>
                 </div>
                 <div className="card p-3.5">
-                  <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted"><Flame size={13} /> Gasto más grande</p>
+                  <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted"><Flame size={13} /> Mayor gasto</p>
                   <p className="num font-display truncate text-lg font-semibold">{gastoMasGrande ? fmt(Number(gastoMasGrande.valor)) : "—"}</p>
                   {gastoMasGrande && <p className="truncate text-sm text-muted">{gastoMasGrande.concepto}</p>}
                 </div>
@@ -665,11 +690,12 @@ function FinanzasContent() {
                       ? <TrendingUp size={20} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
                       : <TrendingDown size={20} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />}
                     <p className="text-[0.9375rem] leading-snug text-secondary">
-                      Gastaste{" "}
+                      En {i.nombre} {esMesActual ? "llevan" : "gastaron"}{" "}
+                      <span className="num font-semibold text-[var(--foreground)]">{fmt(i.actual)}</span>, un{" "}
                       <span className={`font-bold ${i.delta > 0 ? "text-danger" : "text-success"}`}>
                         {Math.abs(i.deltaPct)}% {i.delta > 0 ? "más" : "menos"}
                       </span>{" "}
-                      en {i.nombre} este mes — <span className="num">{fmt(i.actual)}</span> vs <span className="num">{fmt(i.anterior)}</span> en {nombreMes(mesAnteriorDe(mesActivo))}.
+                      que en {nombreMesAnterior}{esMesActual ? " a esta altura" : ""} (<span className="num">{fmt(i.anterior)}</span>).
                     </p>
                   </li>
                 ))}
@@ -697,7 +723,7 @@ function FinanzasContent() {
                 <div id="panel-presupuestos" className="space-y-4 px-4 pb-4">
                   {progresoPresupuestos.length === 0 && categoriasSinPresupuesto.length === 0 && (
                     <p className="py-2 text-sm text-muted">
-                      Sin presupuestos todavía. Se activan solo en categorías donde ya hay gasto compartido este mes.
+                      Aún no tienen presupuestos. Puedes ponerlos en las categorías que ya tienen gastos compartidos este mes.
                     </p>
                   )}
 
@@ -750,11 +776,11 @@ function FinanzasContent() {
                           </div>
                           {p.estado === "excedido" && (
                             <p className="mt-1 text-sm text-danger">
-                              Te pasaste por <span className="num">{fmt(p.actual - p.monto)}</span> este mes.
+                              Se pasaron por <span className="num">{fmt(p.actual - p.monto)}</span> este mes.
                             </p>
                           )}
                           {p.estado === "cerca" && (
-                            <p className="mt-1 text-sm text-warning">Vas en {p.pct}% del presupuesto.</p>
+                            <p className="mt-1 text-sm text-warning">Llevan el {p.pct}% del presupuesto.</p>
                           )}
                         </div>
                       )}
@@ -763,7 +789,7 @@ function FinanzasContent() {
 
                   {categoriasSinPresupuesto.length > 0 && (
                     <div>
-                      <p className="mb-2 text-sm text-muted">Ponerle presupuesto a:</p>
+                      <p className="mb-2 text-sm text-muted">Poner presupuesto a:</p>
                       <div className="flex flex-wrap gap-2">
                         {categoriasSinPresupuesto.map(c => (
                           <button key={c.id} onClick={() => abrirEdicionPresupuesto(c.id)} className="chip">
@@ -791,13 +817,13 @@ function FinanzasContent() {
                   aria-controls="panel-desglose"
                   className="flex min-h-[56px] w-full items-center justify-between px-4"
                 >
-                  <span className="section-label">Desglose por categoría</span>
+                  <span className="section-label">Gasto por categoría</span>
                   <ChevronDown size={18} className={`text-muted transition-transform ${mostrarDesglose ? "rotate-180" : ""}`} aria-hidden="true" />
                 </button>
                 {mostrarDesglose && (
                   <div id="panel-desglose" className="space-y-3.5 px-4 pb-4">
                     <p className="-mt-1 flex items-center gap-2 text-sm text-muted">
-                      <span className="inline-block h-3 w-0.5 bg-white/70" aria-hidden="true" /> marca = mes anterior
+                      <span className="inline-block h-3 w-0.5 bg-white/70" aria-hidden="true" /> La marca blanca es {nombreMesAnterior}{esMesActual ? " a esta altura" : ""}
                     </p>
                     {categoriasComparadas.map(c => {
                       const pctActual   = (c.actual   / maxBarra) * 100
@@ -839,7 +865,11 @@ function FinanzasContent() {
             )}
 
             {gastosFiltrados.length === 0 ? (
-              <EmptyState icon={Receipt} title="No hay gastos este mes" description="Toca + para registrar el primero." />
+              <EmptyState
+                icon={Receipt}
+                title={filtro === "todos" ? `Aún no hay gastos en ${nombreMes(mesActivo)}` : "No hay gastos de este tipo"}
+                description={filtro === "todos" ? "Toca + para registrar el primero." : "Prueba con otro filtro."}
+              />
             ) : (
               <ul className="space-y-2">
                 {gastosFiltrados.map(g => (
@@ -863,8 +893,8 @@ function FinanzasContent() {
                             <span className="flex items-center gap-1"><Lock size={12} aria-hidden="true" /> Personal</span>
                           ) : (
                             <span>
-                              {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreSujeto(g.pagado_por)}`}
-                              {" · "}{g.porcentaje_pagador ?? 50}/{100 - (g.porcentaje_pagador ?? 50)}
+                              {esYo(g.pagado_por) ? "Pagaste tú" : `Pagó ${nombreDe(g.pagado_por)}`}
+                              {" · "}{textoReparto(g.porcentaje_pagador ?? 50)}
                             </span>
                           )}
                         </p>
@@ -894,7 +924,7 @@ function FinanzasContent() {
         )}
 
         {/* ── Bottom sheet: formulario ─────────────────────────────────── */}
-        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editando gasto" : "Nuevo gasto"}>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editar gasto" : "Nuevo gasto"}>
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de gasto">
             <button onClick={() => setVisibilidad("compartido")} aria-pressed={visibilidad === "compartido"} className="chip !rounded-2xl">
               <Users size={16} /> Compartido
@@ -956,7 +986,7 @@ function FinanzasContent() {
           {visibilidad === "compartido" && (
             <div className="space-y-3 border-t border-[var(--border)] pt-3">
               <fieldset>
-                <legend className="field-label">¿Quién puso el dinero?</legend>
+                <legend className="field-label">¿Quién pagó?</legend>
                 <div className="grid grid-cols-2 gap-2">
                   {perfiles.map(p => (
                     <button key={p.id} onClick={() => setPagadoPor(p.id)} aria-pressed={pagadoPor === p.id} className="chip !rounded-2xl truncate">
@@ -967,15 +997,12 @@ function FinanzasContent() {
               </fieldset>
 
               <fieldset>
-                <legend className="field-label">
-                  ¿Cómo se divide? — a quien pagó le corresponde el{" "}
-                  <span className="num font-bold text-[var(--foreground)]">{pctPagador}%</span>
-                </legend>
+                <legend className="field-label">¿Cómo se reparte?</legend>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { v: 50,  label: "50 / 50" },
-                    { v: 100, label: "Todo suyo" },
-                    { v: 0,   label: `Todo de ${otroPerfil?.nombre ?? "el otro"}` },
+                    { v: 50,  label: "A partes iguales" },
+                    { v: 100, label: "Gasto de quien pagó" },
+                    { v: 0,   label: `Gasto de ${primerNombre(otroPerfil?.nombre, "la otra persona")}` },
                   ].map(opt => (
                     <button
                       key={opt.v}
@@ -992,10 +1019,8 @@ function FinanzasContent() {
               {valor && Number(valor) > 0 && pagadoPor && (
                 <div className="rounded-2xl bg-[var(--surface-2)] px-3.5 py-3 text-sm text-secondary" role="status">
                   {pctPagador === 100
-                    ? <span>No genera deuda — es un gasto propio de {nombreSujeto(pagadoPor).toLowerCase()}</span>
-                    : pctPagador === 0
-                    ? <span>{nombreSujeto(pagadoPor)} adelanta <span className="num font-bold text-[var(--foreground)]">{fmt(Number(valor))}</span> que es responsabilidad de {nombreObjeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)}</span>
-                    : <span>{nombreSujeto(perfiles.find(p => p.id !== pagadoPor)?.id ?? null)} debe <span className="num font-bold text-[var(--foreground)]">{fmt(Number(valor) * (100 - pctPagador) / 100)}</span></span>
+                    ? <span>No genera deuda: es un gasto {esYo(pagadoPor) ? "tuyo" : `de ${nombreDe(pagadoPor)}`}.</span>
+                    : <span>{fraseDeuda(perfiles.find(p => p.id !== pagadoPor)?.id ?? null, pagadoPor, Number(valor) * (100 - pctPagador) / 100)}.</span>
                   }
                 </div>
               )}
@@ -1008,7 +1033,7 @@ function FinanzasContent() {
             className="btn btn-primary w-full"
           >
             <Plus size={18} />
-            {guardando ? "Guardando..." : editandoId ? "Actualizar gasto" : "Agregar gasto"}
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Agregar gasto"}
           </button>
         </Sheet>
 

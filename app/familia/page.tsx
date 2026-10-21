@@ -86,7 +86,7 @@ export default function FamiliaPage() {
       : await supabase.from("miembros").insert(payload)
 
     if (res.error) {
-      setError("No se pudo guardar el miembro.")
+      setError("No pudimos guardar a este miembro. Inténtalo de nuevo.")
     } else {
       setModalAbierto(false)
       limpiarFormulario()
@@ -101,7 +101,7 @@ export default function FamiliaPage() {
       setMiembros(prev => prev.filter(x => x.id !== m.id))
       if (editandoId === m.id) cerrarModal()
     } else {
-      setError("No se pudo eliminar el miembro.")
+      setError("No pudimos eliminar a este miembro. Inténtalo de nuevo.")
     }
     setAEliminar(null)
   }
@@ -123,8 +123,8 @@ export default function FamiliaPage() {
         ) : miembros.length === 0 ? (
           <EmptyState
             icon={UsersRound}
-            title="Aún no has agregado a nadie"
-            description="Hijos, mascotas — quien sea que viva en la casa"
+            title="Aún no hay nadie más en el hogar"
+            description="Agrega a tus hijos, mascotas o a quien viva en casa para asignarles documentos."
           />
         ) : (
           <ul className="space-y-2">
@@ -161,7 +161,7 @@ export default function FamiliaPage() {
           </button>
         )}
 
-        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editando miembro" : "Agregar miembro"}>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editar miembro" : "Agregar miembro"}>
           <div>
             <label htmlFor="m-nombre" className="field-label">Nombre</label>
             <input
@@ -220,7 +220,7 @@ export default function FamiliaPage() {
             className="btn btn-primary w-full"
           >
             <UserPlus size={18} />
-            {guardando ? "Guardando..." : editandoId ? "Actualizar" : "Agregar"}
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Agregar miembro"}
           </button>
         </Sheet>
 

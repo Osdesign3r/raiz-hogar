@@ -12,6 +12,7 @@ import Sheet from "@/components/Sheet"
 import PageHeader from "@/components/PageHeader"
 import EmptyState from "@/components/EmptyState"
 import { fechaLocal } from "@/lib/fecha"
+import { primerNombre, fechaCorta } from "@/lib/texto"
 
 const hoy = () => fechaLocal()
 
@@ -93,10 +94,11 @@ export default function CalendarioPage() {
     return () => { supabase.removeChannel(channel) }
   }, [cargar, refrescarEventos])
 
+  const miNombre = primerNombre(perfiles.find(p => p.id === userId)?.nombre, "Tu pareja")
   const otroPerfil = useMemo(() => perfiles.find(p => p.id !== userId) ?? null, [perfiles, userId])
   const esYo = useCallback((id: string | null) => !!id && id === userId, [userId])
   const nombreAsignado = useCallback(
-    (id: string | null) => id === null ? "Ambos" : esYo(id) ? "Ti" : (perfiles.find(p => p.id === id)?.nombre ?? "tu pareja"),
+    (id: string | null) => id === null ? "Ambos" : esYo(id) ? "Tú" : primerNombre(perfiles.find(p => p.id === id)?.nombre),
     [perfiles, esYo]
   )
 
@@ -156,14 +158,14 @@ export default function CalendarioPage() {
       : await supabase.from("eventos").insert(payload)
 
     if (res.error) {
-      setError("No se pudo guardar.")
+      setError("No pudimos guardar los cambios. Inténtalo de nuevo.")
     } else {
       if (esNuevo && otroPerfil) {
         await createNotification(
           otroPerfil.id,
           payload.tipo,
-          payload.tipo === "tarea" ? "Nueva tarea" : "Nuevo evento",
-          `${payload.titulo}${payload.fecha ? " · " + payload.fecha : ""}`,
+          `${miNombre} agregó ${payload.tipo === "tarea" ? "una tarea" : "un evento"}`,
+          `${payload.titulo}${payload.fecha ? " · " + fechaCorta(payload.fecha) : ""}`,
           { titulo: payload.titulo, fecha: payload.fecha, tipo: payload.tipo }
         )
       }
@@ -196,8 +198,8 @@ export default function CalendarioPage() {
         await createNotification(
           otroPerfil.id,
           "tarea_completada",
-          "Tarea completada",
-          `✅ ${e.titulo}`,
+          `${miNombre} completó una tarea`,
+          e.titulo,
           { titulo: e.titulo }
         )
       }
@@ -347,7 +349,7 @@ export default function CalendarioPage() {
             {atrasados.length > 0 && (
               <section className="mb-6">
                 <h2 className="mb-2 flex items-center gap-1.5 pl-1 text-xs font-bold uppercase tracking-wider text-danger">
-                  <AlertTriangle size={14} /> Se quedó pendiente
+                  <AlertTriangle size={14} /> Quedó pendiente
                 </h2>
                 <ul className="space-y-2">{atrasados.map(e => renderItem(e, true))}</ul>
               </section>
@@ -363,8 +365,8 @@ export default function CalendarioPage() {
                 }
                 description={
                   filtroTipo === "todos"
-                    ? "No hay tareas pendientes ni eventos próximos"
-                    : "Prueba cambiando el filtro"
+                    ? "Cuando agreguen un evento o una tarea, aparecerá aquí."
+                    : "Prueba con otro filtro."
                 }
               />
             ) : (
@@ -395,7 +397,7 @@ export default function CalendarioPage() {
           </button>
         )}
 
-        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Corrigiendo plan" : "Nuevo"}>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? (tipo === "tarea" ? "Editar tarea" : "Editar evento") : (tipo === "tarea" ? "Nueva tarea" : "Nuevo evento")}>
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo">
             <button onClick={() => setTipo("evento")} aria-pressed={tipo === "evento"} className="chip !rounded-2xl">
               <Calendar size={16} /> Evento
@@ -441,7 +443,7 @@ export default function CalendarioPage() {
           </div>
 
           <fieldset>
-            <legend className="field-label">¿A quién le compete?</legend>
+            <legend className="field-label">¿Quién se encarga?</legend>
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => setAsignadoA(userId)} aria-pressed={asignadoA === userId} className="chip !rounded-2xl truncate">
                 A mí
@@ -492,13 +494,14 @@ export default function CalendarioPage() {
             className="btn btn-primary w-full"
           >
             <CalendarPlus size={18} />
-            {guardando ? "Guardando..." : editandoId ? "Actualizar" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : tipo === "tarea" ? "Agregar tarea" : "Agregar evento"}
           </button>
         </Sheet>
 
         <ConfirmDialog
           open={!!aEliminar}
-          message="¿Eliminar este elemento? Esta acción no se puede deshacer."
+          title={aEliminar?.tipo === "tarea" ? "¿Eliminar tarea?" : "¿Eliminar evento?"}
+          message={aEliminar ? `Se eliminará "${aEliminar.titulo}". No se puede deshacer.` : ""}
           onCancel={() => setAEliminar(null)}
           onConfirm={() => aEliminar && eliminarConfirmado(aEliminar)}
         />

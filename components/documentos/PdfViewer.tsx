@@ -82,7 +82,7 @@ export default function PdfViewer({ url }: Props) {
       } catch (e) {
         if (!cancelado) {
           console.error("Error renderizando PDF:", e)
-          setError("No se pudo mostrar este PDF aquí.")
+          setError("No pudimos mostrar este PDF aquí. Prueba a abrirlo en otra app.")
         }
       } finally {
         if (!cancelado) setCargando(false)

@@ -16,7 +16,7 @@ export default function TodayTimeline({ items }: { items: TimelineItem[] }) {
 
   return (
     <section aria-labelledby="mi-dia">
-      <h2 id="mi-dia" className="section-label mb-3">Mi día</h2>
+      <h2 id="mi-dia" className="section-label mb-3">Lo que sigue</h2>
 
       <ul className="space-y-2">
         {items.map(e => {

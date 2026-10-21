@@ -1,11 +1,6 @@
 import { Scale } from "lucide-react"
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(n)
+import { moneda as fmt } from "@/lib/texto"
 
 type Props = {
   loading: boolean

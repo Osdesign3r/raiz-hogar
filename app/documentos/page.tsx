@@ -15,6 +15,7 @@ import PageHeader from "@/components/PageHeader"
 import EmptyState from "@/components/EmptyState"
 import PdfViewer from "@/components/documentos/PdfViewer"
 import { fechaLocal } from "@/lib/fecha"
+import { textoVencimiento, fechaCorta } from "@/lib/texto"
 
 const CATEGORIAS: DocumentoCategoria[] = [
   "Familia", "Salud", "Educacion", "Finanzas", "Legal", "Hogar", "Vehiculos", "Mascotas", "Otros",
@@ -112,7 +113,7 @@ export default function DocumentosPage() {
     setHogarId(hogarRes.data?.hogar_id ?? null)
     setMiembros(miembrosRes.data ?? [])
     if (docsRes.error) {
-      setError("Error cargando documentos.")
+      setError("No pudimos cargar los documentos. Inténtalo de nuevo.")
     } else {
       setDocumentos((docsRes.data ?? []) as Documento[])
     }
@@ -180,7 +181,7 @@ export default function DocumentosPage() {
   const guardarDocumento = async () => {
     if (!nombre.trim()) return
     if (!editandoId && !archivo) { setError("Selecciona un archivo."); return }
-    if (!hogarId) { setError("No se pudo determinar tu hogar."); return }
+    if (!hogarId) { setError("No encontramos tu hogar. Cierra sesión, vuelve a entrar e inténtalo de nuevo."); return }
 
     setGuardando(true)
     setError(null)
@@ -202,7 +203,7 @@ export default function DocumentosPage() {
           .from("documentos")
           .upload(nuevoPath, archivo, { contentType: archivo.type })
         setProgreso(null)
-        if (upErr) throw new Error("No se pudo subir el archivo: " + upErr.message)
+        if (upErr) { console.error(upErr); throw new Error("No pudimos subir el archivo. Revisa tu conexión e inténtalo de nuevo.") }
         archivoPath = nuevoPath
       }
 
@@ -222,7 +223,7 @@ export default function DocumentosPage() {
         ? await supabase.from("documentos").update(payload).eq("id", editandoId)
         : await supabase.from("documentos").insert(payload)
 
-      if (res.error) throw new Error(res.error.message)
+      if (res.error) { console.error(res.error); throw new Error("No pudimos guardar el documento. Inténtalo de nuevo.") }
 
       if (editandoId && archivo && archivoActual && archivoActual !== archivoPath) {
         await supabase.storage.from("documentos").remove([archivoActual])
@@ -232,7 +233,7 @@ export default function DocumentosPage() {
       limpiarFormulario()
       await cargarDatos()
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo guardar el documento.")
+      setError(e instanceof Error ? e.message : "No pudimos guardar el documento. Inténtalo de nuevo.")
     } finally {
       setGuardando(false)
     }
@@ -257,7 +258,7 @@ export default function DocumentosPage() {
       .from("documentos")
       .createSignedUrl(d.archivo_url, 300)
     setVisorCargando(false)
-    if (err || !data) { setError("No se pudo abrir el archivo."); return }
+    if (err || !data) { setError("No pudimos abrir el archivo. Inténtalo de nuevo."); return }
     setVisor({ url: data.signedUrl, nombre: d.nombre, tipo: tipoVisorDe(d.archivo_url) })
   }
 
@@ -302,10 +303,9 @@ export default function DocumentosPage() {
 
   const fmtVencimiento = (fecha: string) => {
     const dias = diasEntre(fecha, hoy())
-    if (dias < 0) return { texto: `Venció hace ${Math.abs(dias)} días`, color: "text-danger" }
-    if (dias === 0) return { texto: "Vence hoy", color: "text-warning" }
-    if (dias <= 30) return { texto: `Vence en ${dias} días`, color: "text-warning" }
-    return { texto: `Vence ${fecha}`, color: "text-muted" }
+    if (dias < 0) return { texto: textoVencimiento(dias), color: "text-danger" }
+    if (dias <= 30) return { texto: textoVencimiento(dias), color: "text-warning" }
+    return { texto: `Vence el ${fechaCorta(fecha)}`, color: "text-muted" }
   }
 
   const renderItem = (d: Documento, destacar?: "vencido" | "porVencer") => {
@@ -444,8 +444,8 @@ export default function DocumentosPage() {
                 title="La carpeta está vacía"
                 description={
                   busqueda
-                    ? "No encontramos documentos con ese criterio"
-                    : "Guarda aquí documentos importantes de la familia"
+                    ? "Ningún documento coincide con tu búsqueda."
+                    : "Guarda aquí los documentos importantes de la familia: pasaportes, seguros, vacunas."
                 }
               />
             ) : (
@@ -462,7 +462,7 @@ export default function DocumentosPage() {
           </button>
         )}
 
-        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editando documento" : "Nuevo documento"}>
+        <Sheet open={modalAbierto} onClose={cerrarModal} title={editandoId ? "Editar documento" : "Nuevo documento"}>
           <label className="flex min-h-[56px] cursor-pointer items-center gap-3 rounded-[14px] border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] p-3.5 text-secondary transition hover:border-[var(--accent)] focus-within:border-[var(--accent)]">
             <Upload size={20} className="shrink-0 text-muted" aria-hidden="true" />
             <span className="flex-1 truncate">
@@ -561,7 +561,7 @@ export default function DocumentosPage() {
               id="d-tags"
               value={etiquetas}
               onChange={e => setEtiquetas(e.target.value)}
-              placeholder="Separadas por coma: pasaporte, urgente"
+              placeholder="Ej. pasaporte, urgente (separadas por coma)"
               className="field"
             />
           </div>
@@ -585,7 +585,7 @@ export default function DocumentosPage() {
             className="btn btn-primary w-full"
           >
             <Upload size={18} />
-            {guardando ? "Guardando..." : editandoId ? "Actualizar documento" : "Guardar documento"}
+            {guardando ? "Subiendo..." : editandoId ? "Guardar cambios" : "Guardar documento"}
           </button>
         </Sheet>
 

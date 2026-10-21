@@ -36,14 +36,14 @@ function LoginContent() {
       if (error) {
         clearTimeout(timer)
         setLoading(false)
-        setErrorMsg("No se pudo conectar con Google. Intenta de nuevo.")
+        setErrorMsg("No pudimos conectar con Google. Inténtalo de nuevo.")
       }
       // Si no hay error, la página redirige — el timer queda corriendo pero
       // el componente se desmonta antes de que dispare, sin efecto adverso.
     } catch {
       clearTimeout(timer)
       setLoading(false)
-      setErrorMsg("Algo salió mal. Intenta de nuevo.")
+      setErrorMsg("Algo salió mal. Inténtalo de nuevo.")
     }
   }
 
@@ -77,7 +77,7 @@ function LoginContent() {
         {/* Error OAuth (redirect de vuelta con ?error=auth) o local (timeout / catch) */}
         {(hasError || errorMsg) && (
           <div role="alert" className="card tone-danger mb-5 p-3.5 text-center text-sm text-danger">
-            {errorMsg ?? "Algo salió mal. Intenta de nuevo."}
+            {errorMsg ?? "Algo salió mal al entrar. Inténtalo de nuevo."}
           </div>
         )}
 
@@ -101,8 +101,8 @@ function LoginContent() {
         </button>
 
         <div className="mt-8 space-y-1.5 text-center">
-          <p className="text-sm text-secondary">Solo TÚ y YO tenemos acceso a este hogar</p>
-          <p className="text-sm text-muted">Google solo se usa para identificarlos de forma segura</p>
+          <p className="text-sm text-secondary">Este hogar es solo de ustedes dos</p>
+          <p className="text-sm text-muted">Usamos tu cuenta de Google solo para confirmar quién eres.</p>
         </div>
 
       </div>

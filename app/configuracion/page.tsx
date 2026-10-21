@@ -49,11 +49,11 @@ export default function ConfiguracionPage() {
     if (!token) {
       setError(
         Notification.permission === "denied"
-          ? "iOS bloqueó el permiso. Bórrala del inicio y vuelve a 'Agregar a inicio' desde Safari para reintentar."
-          : "No se pudo activar. Revisa 'Verificar token guardado' abajo para ver el motivo exacto."
+          ? "iOS bloqueó el permiso. Elimina LAZO de tu pantalla de inicio y agrégala de nuevo desde Safari (Compartir → Agregar a inicio)."
+          : "No pudimos activar las notificaciones. Toca «Comprobar notificaciones» para ver qué falla."
       )
     } else {
-      setResultadoPush(`Token guardado: ...${token.slice(-8)}`)
+      setResultadoPush("Listo: este dispositivo recibirá las notificaciones.")
     }
     setActivandoPush(false)
   }
@@ -70,14 +70,15 @@ export default function ConfiguracionPage() {
       const { refrescarTokenSiYaHabilitado } = await import("@/lib/firebase")
       const token = await refrescarTokenSiYaHabilitado()
       if (token) {
-        setResultadoPush(`Token guardado correctamente: ...${token.slice(-8)}`)
+        setResultadoPush("Todo en orden: este dispositivo recibirá las notificaciones.")
       } else {
         setResultadoPush(null)
-        setError("El navegador no devolvió un token. Puede ser la VAPID key, el service worker, o el permiso del sistema operativo.")
+        setError("Este dispositivo no quedó registrado para recibir notificaciones. Revisa que el permiso esté activo en los ajustes del teléfono y vuelve a intentarlo.")
       }
     } catch (e) {
       setResultadoPush(null)
-      setError("Error real: " + (e instanceof Error ? e.message : String(e)))
+      console.error(e)
+      setError("No pudimos comprobar las notificaciones. Inténtalo de nuevo." + (e instanceof Error ? ` (${e.message})` : ""))
     }
     setActivandoPush(false)
   }
@@ -105,7 +106,7 @@ export default function ConfiguracionPage() {
       .eq("id", user.id)
 
     if (err) {
-      setError("No se pudo guardar.")
+      setError("No pudimos guardar los cambios. Inténtalo de nuevo.")
     } else {
       applyAccentToRoot(accent)
       setGuardado(true)
@@ -249,10 +250,10 @@ export default function ConfiguracionPage() {
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold">Notificaciones push</h2>
               <p className="text-sm text-secondary" aria-live="polite">
-                {estadoPush === "granted"  ? "Permiso concedido en este dispositivo" :
+                {estadoPush === "granted"  ? "Activadas en este dispositivo" :
                  estadoPush === "denied"   ? "Bloqueadas por el sistema" :
                  estadoPush === "unsupported" ? "No disponibles en este navegador" :
-                                              "Aún no activadas en este dispositivo"}
+                                              "Todavía no activadas en este dispositivo"}
               </p>
             </div>
           </div>
@@ -269,7 +270,7 @@ export default function ConfiguracionPage() {
           {estadoPush === "granted" && (
             <button onClick={verificarToken} disabled={activandoPush} className="btn btn-secondary w-full">
               <BellRing size={18} />
-              {activandoPush ? "Verificando..." : "Verificar / reintentar guardado del token"}
+              {activandoPush ? "Comprobando..." : "Comprobar notificaciones"}
             </button>
           )}
 
@@ -279,9 +280,9 @@ export default function ConfiguracionPage() {
 
           {estadoPush === "denied" && (
             <p className="text-sm leading-relaxed text-muted">
-              iOS ya decidió por ti y no deja volver a preguntar desde la app. Bórrala del
-              inicio y agrégala de nuevo desde Safari (compartir → Agregar a inicio) para
-              que vuelva a preguntar.
+              iOS no permite volver a pedir el permiso desde la app. Elimina LAZO de tu
+              pantalla de inicio y agrégala de nuevo desde Safari (Compartir → Agregar a
+              inicio) para que vuelva a preguntar.
             </p>
           )}
         </section>
@@ -289,7 +290,7 @@ export default function ConfiguracionPage() {
         {/* Seguridad */}
         <section className="card flex items-center gap-3 p-4">
           <Shield size={18} className="shrink-0" style={{ color: "var(--accent-text)" }} aria-hidden="true" />
-          <p className="text-sm text-secondary">Autenticado con Google. Los datos del hogar son visibles para ambos.</p>
+          <p className="text-sm text-secondary">Entraste con Google. Ambos ven los datos del hogar, salvo lo que marques como personal o privado.</p>
         </section>
 
         {/* Cerrar sesión */}
